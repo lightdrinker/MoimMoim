@@ -253,41 +253,42 @@ function changeCondition() {
   go('s-condition');
 }
 
-function shareKakao() {
+
+ async function shareText() {
   const condStr = S.condition.main || (S.condition.selected || []).join('·') || '';
   const pinNames = S.pins.map(p => {
     const m = (p.label || '').match(/([가-힣]+(?:역|동|읍|면|리))/);
     return m ? m[1] : (p.label || '').split(' ')[0];
   }).filter(Boolean);
 
+  const midArea = await new Promise(resolve => {
+    if (!geocoder || !S.rec?.mid) { resolve(''); return; }
+    geocoder.geocode({ location: { lat: S.rec.mid.lat, lng: S.rec.mid.lng }, language: 'ko' }, (res, st) => {
+      if (st === 'OK' && res[0]) {
+        const comps = res[0].address_components;
+        const sub = comps.find(c => c.types.includes('sublocality_level_2') || c.types.includes('sublocality_level_1'));
+        resolve(sub?.long_name || '');
+      } else resolve('');
+    });
+  });
+
   const rests = S.rec?.restaurants || [];
   const RANK = ['🥇', '🥈', '🥉'];
 
-  const contents = rests.slice(0, 3).map((r, i) => ({
-    title: `${RANK[i]} ${r.display_name || r.name}`,
-    description: r.description || '',
-    link: {
-      mobileWebUrl: buildNaverUrl(r),
-      webUrl: buildNaverUrl(r),
-    },
-  }));
+  const pinPart = pinNames.join(' & ');
+  const midPart = midArea ? ` = ${midArea}` : '';
+  const header = `📍 ${pinPart} 중간${midPart} (${condStr} ${S.type})`;
 
-  Kakao.Share.sendDefault({
-    objectType: 'list',
-    headerTitle: `📍 ${pinNames.join(' & ')} 중간, ${condStr} ${S.type} 추천`,
-    headerLink: {
-      mobileWebUrl: 'https://moim-moim-tau.vercel.app',
-      webUrl: 'https://moim-moim-tau.vercel.app',
-    },
-    contents,
-    buttons: [
-      {
-        title: '나도 찾아보기',
-        link: {
-          mobileWebUrl: 'https://moim-moim-tau.vercel.app',
-          webUrl: 'https://moim-moim-tau.vercel.app',
-        },
-      },
-    ],
-  });
+  const restLines = rests.slice(0, 3).map((r, i) =>
+    `${RANK[i]} ${r.display_name || r.name} ${buildNaverUrl(r)}`
+  ).join('\n');
+
+  const text = `${header}\n\n${restLines}\n\n🚩 모임 Moim ; Meet in the Middle\n👉 https://moim-moim-tau.vercel.app`;
+
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('📋 복사됐어요! 카톡에 붙여넣기 하세요');
+  } catch {
+    toast('복사 실패. 직접 선택해서 복사해주세요');
+  }
 }

@@ -298,7 +298,7 @@ body {
 }
 .btn-naver:active { opacity: .85; }
 
-.res-bottom { padding: 8px 16px 100px; }
+.res-bottom { padding: 8px 16px 100px; display: flex; flex-direction: column; gap: 10px; }
 
 #s-home {
   align-items: center; justify-content: center;
