@@ -108,7 +108,7 @@ export default async function handler(req, res) {
 
       // ── 2단계: Google Text Search로 사진/평점 보완 (식당명+주소로 정확 매칭)
       const fields = 'name,rating,user_ratings_total,formatted_address,photos,price_level,opening_hours,place_id,types';
-      const enriched = await Promise.all(finalResults.slice(0, 10).map(async item => {
+      const enriched = await Promise.all(finalResults.slice(0, 15).map(async item => {
         const placeName = item.title
           ? item.title.replace(/<[^>]+>/g, '')
           : (item.name || '');
@@ -217,7 +217,13 @@ export default async function handler(req, res) {
         }));
       }
 
-      return res.status(200).json({ results: enriched, radiusUsed });
+      // 1순위: Google 매칭 성공 + 평점 3.5↑
+      const tier1 = enriched.filter(r => r.place_id && r.rating >= 3.5);
+      // 2순위: 후보 3개 미만일 때 평점 없는 것으로 보충
+      const tier2 = enriched.filter(r => !r.place_id || !r.rating);
+      const finalFiltered = tier1.length >= 3 ? tier1 : [...tier1, ...tier2].slice(0, Math.max(tier1.length + 3, 5));
+
+      return res.status(200).json({ results: finalFiltered, radiusUsed });
     }
 
     // ── 사진 URL 반환
