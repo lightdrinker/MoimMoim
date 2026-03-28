@@ -32,13 +32,13 @@ async function getRecommend() {
 function buildKw() {
   const c = S.condition;
   const map = {
-    '술자리': c.main?.includes('와인') ? '와인 맛집' :
-              c.main?.includes('사케') ? '사케 이자카야 맛집' :
-              c.main?.includes('막걸리') ? '막걸리 전통주 맛집' :
-              c.main?.includes('맥주') ? '맥주 맛집' :
-              c.main?.includes('상관') ? '술집 맛집' :
-              '소주 소주안주 국물 한식 맛집',
-    '회식': c.main?.includes('중식') ? '중식 중국집 중식당' :
+    '술자리': c.main?.includes('와인') ? '와인바' :
+              c.main?.includes('사케') ? '이자카야' :
+              c.main?.includes('막걸리') ? '막걸리집' :
+              c.main?.includes('맥주') ? '맥주 호프' :
+              c.main?.includes('상관') ? '술집' :
+              '소주 맛집',
+    '회식': c.main?.includes('중식') ? '중식 중식당' :
             c.main?.includes('일식') ? '일식 일식집' :
             c.main?.includes('양식') ? '양식' :
             c.main?.includes('상관') ? '맛집' :
@@ -46,7 +46,7 @@ function buildKw() {
     '가족': '가족 식사',
     '식사': c.main === '상관없음' || !c.main ? '맛집' :
             c.main === '한식' ? '한식 한식당' :
-            c.main === '중식' ? '중식 중국집 중식당' :
+            c.main === '중식' ? '중식 중식당' :
             c.main === '일식' ? '일식 일식집' :
             c.main === '양식' ? '양식' :
             c.main === '동남아' ? '동남아음식점' : '맛집',
@@ -56,7 +56,7 @@ function buildKw() {
             '카페',
     '청첩': c.main?.includes('맛집') ? '청첩모임 맛집' :
             c.main?.includes('분위기') ? '청첩모임 분위기' :
-            '청첩모임 조용한 식당',
+            '청첩모임 조용한',
   };
   const kw = map[S.type] || '맛집';
   return [kw, 'restaurant', kw];
@@ -67,7 +67,8 @@ async function runGemini(restaurants) {
     const typeLabel = (r.types || [])
       .filter(t => !['point_of_interest','establishment','premise'].includes(t))
       .slice(0, 2).join(', ');
-    return `${i+1}. ${r.name} (평점:${r.rating||'없음'}, 리뷰:${r.user_ratings_total||0}개, 주소:${r.formatted_address||''}, 업종:${typeLabel||'식당'})`;
+    const summary = r.editorial_summary?.overview || '';
+    return `${i+1}. ${r.name} (평점:${r.rating||'없음'}, 리뷰:${r.user_ratings_total||0}개, 주소:${r.formatted_address||''}, 업종:${typeLabel||'식당'}${summary ? ', 설명:'+summary : ''})`;
   }).join('\n');
   const cstr = S.condition.main || S.condition.selected?.join(', ') || '상관없음';
   const prompt = `당신은 한국 맛집 큐레이터입니다.

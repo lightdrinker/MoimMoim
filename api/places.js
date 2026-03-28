@@ -107,7 +107,7 @@ export default async function handler(req, res) {
       }
 
       // ── 2단계: Google Text Search로 사진/평점 보완 (식당명+주소로 정확 매칭)
-      const fields = 'name,rating,user_ratings_total,formatted_address,photos,price_level,opening_hours,place_id,types';
+      const fields = 'name,rating,user_ratings_total,formatted_address,photos,price_level,opening_hours,place_id,types,editorial_summary';
       const enriched = await Promise.all(finalResults.slice(0, 15).map(async item => {
         const placeName = item.title
           ? item.title.replace(/<[^>]+>/g, '')
