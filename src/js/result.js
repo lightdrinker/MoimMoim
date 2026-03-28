@@ -11,7 +11,7 @@ async function getRecommend() {
     const nd = await nr.json();
     if (!nd.results?.length) throw new Error('주변에 식당을 찾지 못했어요. 출발지를 다시 설정해보세요.');
 
-    const top = nd.results.slice(0, 5);
+    const top = nd.results.slice(0, 10);
 
     step(3);
     const enriched = await runGemini(top);
@@ -247,4 +247,47 @@ function retryRecommend() {
   document.getElementById('mid-banner').classList.remove('show');
   document.getElementById('loc-error').classList.remove('show');
   go('s-locations');
+}
+
+function changeCondition() {
+  go('s-condition');
+}
+
+function shareKakao() {
+  const condStr = S.condition.main || (S.condition.selected || []).join('·') || '';
+  const pinNames = S.pins.map(p => {
+    const m = (p.label || '').match(/([가-힣]+(?:역|동|읍|면|리))/);
+    return m ? m[1] : (p.label || '').split(' ')[0];
+  }).filter(Boolean);
+
+  const rests = S.rec?.restaurants || [];
+  const RANK = ['🥇', '🥈', '🥉'];
+
+  const contents = rests.slice(0, 3).map((r, i) => ({
+    title: `${RANK[i]} ${r.display_name || r.name}`,
+    description: r.description || '',
+    link: {
+      mobileWebUrl: buildNaverUrl(r),
+      webUrl: buildNaverUrl(r),
+    },
+  }));
+
+  Kakao.Share.sendDefault({
+    objectType: 'list',
+    headerTitle: `📍 ${pinNames.join(' & ')} 중간, ${condStr} ${S.type} 추천`,
+    headerLink: {
+      mobileWebUrl: 'https://moim-moim-tau.vercel.app',
+      webUrl: 'https://moim-moim-tau.vercel.app',
+    },
+    contents,
+    buttons: [
+      {
+        title: '나도 찾아보기',
+        link: {
+          mobileWebUrl: 'https://moim-moim-tau.vercel.app',
+          webUrl: 'https://moim-moim-tau.vercel.app',
+        },
+      },
+    ],
+  });
 }
