@@ -73,7 +73,7 @@ export default async function handler(req, res) {
       if (NAVER_ID && NAVER_SECRET) {
         // district 없으면 서울을 기본값으로 (geocoder 실패 방어)
         const regionPrefix = district || '서울';
-        const naverQuery = `${regionPrefix} ${blogKw || keyword}`;
+        const naverQuery = `${regionPrefix} ${keyword}`;
         const naverUrl = `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(naverQuery)}&display=20&sort=random`;
         try {
           const naverRes = await fetch(naverUrl, {
@@ -190,33 +190,7 @@ export default async function handler(req, res) {
 
       if (!enriched.length) return res.status(200).json({ results: [] });
 
-      // ── 3단계: 블로그 snippet 수집
-      if (NAVER_ID && NAVER_SECRET) {
-        await Promise.all(enriched.map(async place => {
-          try {
-            const q = `${place.name} ${blogKw || keyword}`;
-            const blogUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(q)}&display=5&sort=sim`;
-            const blogRes = await fetch(blogUrl, {
-              headers: {
-                'X-Naver-Client-Id': NAVER_ID,
-                'X-Naver-Client-Secret': NAVER_SECRET,
-              },
-            });
-            const blogData = await blogRes.json();
-            place.blog_snippets = (blogData.items || []).slice(0, 5).map(item =>
-              (item.title + ' ' + item.description)
-                .replace(/<[^>]+>/g, '')
-                .replace(/&quot;/g, '"')
-                .replace(/&amp;/g, '&')
-                .replace(/&#\d+;/g, '')
-                .slice(0, 200)
-            );
-          } catch {
-            place.blog_snippets = [];
-          }
-        }));
-      }
-
+    
       // 1순위: Google 매칭 성공 + 평점 3.5↑
       const tier1 = enriched.filter(r => r.place_id && r.rating >= 3.5);
       // 2순위: 후보 3개 미만일 때 평점 없는 것으로 보충

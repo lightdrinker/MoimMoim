@@ -32,31 +32,34 @@ async function getRecommend() {
 function buildKw() {
   const c = S.condition;
   const map = {
-    '술자리': c.main?.includes('와인') ? ['wine bar 와인바', 'bar', '와인 와인바'] :
-              c.main?.includes('사케') ? ['izakaya 이자카야 일식', 'restaurant', '사케 이자카야'] :
-              c.main?.includes('막걸리') ? ['막걸리 전통주점 Korean traditional', 'restaurant', '막걸리 전통주'] :
-              c.main?.includes('맥주') ? ['호프 beer pub 맥주', 'bar', '맥주 호프'] :
-              ['소주 한식 술집 Korean pub', 'restaurant', '소주 술자리'],
-    '회식': c.main?.includes('중식') ? ['중식당 Chinese restaurant', 'restaurant', '중식 회식'] :
-            c.main?.includes('일식') ? ['일식당 Japanese restaurant', 'restaurant', '일식 회식'] :
-            c.main?.includes('양식') ? ['양식 Italian restaurant', 'restaurant', '양식 회식'] :
-            ['한식 고기 Korean BBQ grill', 'restaurant', '고기 회식'],
-    '가족': ['가족식당 family restaurant 단체', 'restaurant', '가족식사 단체'],
-    '식사': c.main === '상관없음' || !c.main ? ['맛집 restaurant', 'restaurant', '맛집'] :
-            c.main === '한식' ? ['한식 Korean food', 'restaurant', '한식 맛집'] :
-            c.main === '중식' ? ['중식 Chinese food', 'restaurant', '중식 맛집'] :
-            c.main === '일식' ? ['일식 Japanese food', 'restaurant', '일식 맛집'] :
-            c.main === '양식' ? ['양식 Western restaurant', 'restaurant', '양식 맛집'] :
-            c.main === '동남아' ? ['동남아 Thai Vietnamese restaurant', 'restaurant', '동남아 맛집'] :
-            [c.main + ' 맛집', 'restaurant', c.main + ' 맛집'],
-    '카페': c.main?.includes('빵') ? ['베이커리 bakery cafe 빵', 'bakery', '빵 베이커리'] :
-            c.main?.includes('디저트') ? ['디저트 dessert cafe', 'cafe', '디저트 카페'] :
-            ['카페 coffee cafe', 'cafe', '카페 분위기'],
-    '청첩': c.main?.includes('맛집') ? ['맛집 fine dining restaurant', 'restaurant', '맛집 특별한'] :
-            c.main?.includes('분위기') ? ['분위기 좋은 romantic restaurant', 'restaurant', '분위기 좋은 레스토랑'] :
-            ['조용한 quiet restaurant', 'restaurant', '조용한 레스토랑'],
+    '술자리': c.main?.includes('와인') ? '와인 맛집' :
+              c.main?.includes('사케') ? '사케 이자카야 맛집' :
+              c.main?.includes('막걸리') ? '막걸리 전통주 맛집' :
+              c.main?.includes('맥주') ? '맥주 맛집' :
+              c.main?.includes('상관') ? '술집 맛집' :
+              '소주 소주안주 국물 한식 맛집',
+    '회식': c.main?.includes('중식') ? '중식 중국집 중식당' :
+            c.main?.includes('일식') ? '일식 일식집' :
+            c.main?.includes('양식') ? '양식' :
+            c.main?.includes('상관') ? '맛집' :
+            '한식 고기집',
+    '가족': '가족 식사',
+    '식사': c.main === '상관없음' || !c.main ? '맛집' :
+            c.main === '한식' ? '한식 한식당' :
+            c.main === '중식' ? '중식 중국집 중식당' :
+            c.main === '일식' ? '일식 일식집' :
+            c.main === '양식' ? '양식' :
+            c.main === '동남아' ? '동남아음식점' : '맛집',
+    '카페': c.main?.includes('빵') ? '빵 베이커리 맛집' :
+            c.main?.includes('디저트') ? '디저트 카페' :
+            c.main?.includes('음료') ? '카페 커피 맛집' :
+            '카페',
+    '청첩': c.main?.includes('맛집') ? '청첩모임 맛집' :
+            c.main?.includes('분위기') ? '청첩모임 분위기' :
+            '청첩모임 조용한 식당',
   };
-  return map[S.type] || ['맛집 restaurant', 'restaurant', '맛집'];
+  const kw = map[S.type] || '맛집';
+  return [kw, 'restaurant', kw];
 }
 
 async function runGemini(restaurants) {
