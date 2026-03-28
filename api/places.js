@@ -1,296 +1,227 @@
-async function getRecommend() {
-  go('s-loading'); step(0);
-  try {
-    step(1);
-    const mid = weightedCentroid(S.pins);
+export const config = {
+  api: { bodyParser: true },
+};
 
-    step(2);
-    const [kw] = buildKw();
-    const district = await getMidDistrict(mid.lat, mid.lng);
-    const nr = await fetch(`/api/places?action=nearby&lat=${mid.lat}&lng=${mid.lng}&keyword=${encodeURIComponent(kw)}&district=${encodeURIComponent(district)}`);
-    const nd = await nr.json();
-    if (!nd.results?.length) throw new Error('주변에 식당을 찾지 못했어요. 출발지를 다시 설정해보세요.');
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
-    const top = nd.results.slice(0, 10);
+  const { action, photo_references, maxwidth = 600 } = req.query;
 
-    step(3);
-    const enriched = await runGemini(top);
-
-    step(4);
-    const withPhotos = await loadPhotos(enriched);
-
-    S.rec = { restaurants: withPhotos, mid };
-    renderResult(withPhotos, mid, nd.radiusUsed || 2.0);
-    go('s-result');
-  } catch(e) {
-    document.getElementById('loc-error').textContent = e.message || '오류가 발생했어요. 다시 시도해주세요.';
-    document.getElementById('loc-error').classList.add('show');
-    go('s-locations');
-  }
-}
-
-function buildKw() {
-  const c = S.condition;
-  const map = {
-    '술자리': c.main?.includes('와인') ? '와인바' :
-              c.main?.includes('사케') ? '이자카야' :
-              c.main?.includes('막걸리') ? '막걸리집' :
-              c.main?.includes('맥주') ? '맥주 호프' :
-              c.main?.includes('상관') ? '술집' :
-              '소주 맛집',
-    '회식': c.main?.includes('중식') ? '중식 중식당' :
-            c.main?.includes('일식') ? '일식 일식집' :
-            c.main?.includes('양식') ? '양식' :
-            c.main?.includes('상관') ? '맛집' :
-            '한식 고기집',
-    '가족': '가족 식사',
-    '식사': c.main === '상관없음' || !c.main ? '맛집' :
-            c.main === '한식' ? '한식 한식당' :
-            c.main === '중식' ? '중식 중식당' :
-            c.main === '일식' ? '일식 일식집' :
-            c.main === '양식' ? '양식' :
-            c.main === '동남아' ? '동남아음식점' : '맛집',
-    '카페': c.main?.includes('빵') ? '빵 베이커리 맛집' :
-            c.main?.includes('디저트') ? '디저트 카페' :
-            c.main?.includes('음료') ? '카페 커피 맛집' :
-            '카페',
-    '청첩': c.main?.includes('맛집') ? '청첩모임 맛집' :
-            c.main?.includes('분위기') ? '청첩모임 분위기' :
-            '청첩모임 조용한',
-  };
-  const kw = map[S.type] || '맛집';
-  return [kw, 'restaurant', kw];
-}
-
-async function runGemini(restaurants) {
-  const list = restaurants.map((r,i) => {
-    const typeLabel = (r.types || [])
-      .filter(t => !['point_of_interest','establishment','premise'].includes(t))
-      .slice(0, 2).join(', ');
-    const blogText = (r.blog_snippets || []).join(' / ').slice(0, 300);
-    return `${i+1}. ${r.name} (평점:${r.rating||'없음'}, 리뷰:${r.user_ratings_total||0}개, 업종:${typeLabel||'식당'}${blogText ? ', 블로그후기:'+blogText : ''})`;
-  }).join('\n');
-  const cstr = S.condition.main || S.condition.selected?.join(', ') || '상관없음';
-  const prompt = `당신은 한국 맛집 큐레이터입니다.
-
-[지시사항]
-- 아래 식당 목록에서 "${S.type}" 모임 (조건: ${cstr})에 가장 잘 맞는 TOP 3를 선정하세요.
-- 각 식당의 description은 블로그 후기를 참고해서 대표 음식과 분위기를 포함한 자연스러운 추천 문장 1-2개로 반드시 작성하세요. 블로그 후기가 없으면 업종 특성에 맞게 창작하세요.
-- 블로그 후기 문장을 그대로 복사하거나 인용하지 마세요. 반드시 새로 작성하세요.
-- tags는 분위기/음식/특징을 나타내는 짧은 한국어 태그로 작성하세요.
-
-식당 목록:
-${list}
-
-반드시 아래 JSON 배열 형식으로만 응답하세요. 다른 텍스트 없이 JSON만:
-[{"rank":1,"name":"식당명","description":"이 식당 추천 이유 1-2문장","tags":["태그1","태그2","태그3"]},{"rank":2,"name":"식당명","description":"이 식당 추천 이유 1-2문장","tags":["태그1","태그2","태그3"]},{"rank":3,"name":"식당명","description":"이 식당 추천 이유 1-2문장","tags":["태그1","태그2","태그3"]}]`;
-
-  try {
-    const res = await fetch('/api/places?action=gemini', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    });
-    const d = await res.json();
-    const text = (d.text || '').trim();
-
-    let parsed = null;
-    try { parsed = JSON.parse(text); } catch {}
-    if (!Array.isArray(parsed)) {
-      const m = text.match(/\[[\s\S]*\]/);
-      if (m) try { parsed = JSON.parse(m[0]); } catch {}
+  if (action === 'gemini') {
+    const KEY = process.env.GEMINI_API_KEY;
+    if (!KEY) return res.status(500).json({ error: 'Gemini API key not configured' });
+    let body = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch { body = {}; }
     }
-    if (!Array.isArray(parsed)) {
-      const clean = text.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'').trim();
-      try { parsed = JSON.parse(clean); } catch {}
-    }
-
-    if (Array.isArray(parsed) && parsed.length) {
-      return parsed.map(item => {
-        const orig = restaurants.find(r => r.name === item.name)
-          || restaurants.find(r => r.name && item.name && r.name.includes(item.name))
-          || restaurants.find(r => r.name && item.name && item.name.includes(r.name))
-          || restaurants[(item.rank || 1) - 1]
-          || restaurants[0];
-        return { ...orig, display_name: item.name || orig.name, description: item.description || '', tags: item.tags || [], rank: item.rank };
-      });
-    }
-  } catch(e) { /* Gemini 호출 실패 시 fallback */ }
-
-  const typeMap = {
-    restaurant: '음식점', bar: '바', cafe: '카페', bakery: '베이커리',
-    meal_takeaway: '포장가능', meal_delivery: '배달', night_club: '나이트클럽',
-    liquor_store: '주류', food: '식당',
-  };
-  return restaurants.slice(0,3).map((r,i) => {
-    const desc = (r.blog_snippets || []).find(s => s && s.trim()) || '';
-    const rawTags = (r.types || [])
-      .filter(t => !['point_of_interest','establishment','food','premise'].includes(t))
-      .slice(0, 3)
-      .map(t => typeMap[t] || t.replace(/_/g, ' '));
-    return { ...r, display_name: r.name, description: desc.slice(0, 100), tags: rawTags, rank: i+1 };
-  });
-}
-
-async function loadPhotos(rests) {
-  return Promise.all(rests.map(async r => {
-    const refs = (r.photos || []).slice(0, 2).map(p => p.photo_reference).filter(Boolean);
-    if (!refs.length) return { ...r, photo_urls: [] };
+    const prompt = body?.prompt || '';
+    if (!prompt) return res.status(400).json({ error: 'No prompt' });
     try {
-      const res = await fetch(`/api/places?action=photo&photo_references=${refs.join(',')}&maxwidth=600`);
-      const d = await res.json();
-      return { ...r, photo_urls: d.photo_urls || [] };
-    } catch { return { ...r, photo_urls: [] }; }
-  }));
-}
-
-function buildNaverUrl(r) {
-  const addr = r.formatted_address || '';
-  const cleaned = addr
-    .replace(/^대한민국\s*/, '')
-    .replace(/^(서울특별시|경기도|부산광역시|인천광역시|대구광역시|대전광역시|광주광역시|울산광역시|세종특별자치시)\s*/, '');
-  const guMatch = cleaned.match(/([가-힣]+[구군])/);
-  const gu = guMatch ? guMatch[1] : '';
-  const dongMatch = cleaned.match(/[가-힣]+[구군]\s*([가-힣0-9]+(?:동|가|읍|면|리))\b/);
-  const dong = dongMatch ? dongMatch[1] : '';
-  const shortAddr = [gu, dong].filter(Boolean).join(' ');
-  const name = r.display_name || r.name || '';
-  return `https://map.naver.com/p/search/${encodeURIComponent([shortAddr, name].filter(Boolean).join(' '))}`;
-}
-
-function renderResult(rests, mid, radiusUsed) {
-  const condStr = S.condition.main || (S.condition.selected || []).join('·') || '';
-  const titleText = condStr ? `${S.typeIcon} ${condStr} ${S.type}` : `${S.typeIcon} ${S.type}`;
-  document.getElementById('res-title').textContent = titleText;
-
-  const pinNames = (S.pins || []).map(p => {
-    const lbl = p.label || '';
-    const m = lbl.match(/([가-힣]+(?:역|동|읍|면|리))/);
-    return m ? m[1] : lbl.split(' ')[0];
-  }).filter(Boolean);
-
-  if (geocoder) {
-    geocoder.geocode({ location: { lat: mid.lat, lng: mid.lng }, language: 'ko' }, (res, st) => {
-      let areaName = '';
-      if (st === 'OK' && res[0]) {
-        const comps = res[0].address_components;
-        const sub = comps.find(c => c.types.includes('sublocality_level_2') || c.types.includes('sublocality_level_1'));
-        areaName = sub?.long_name || '';
-      }
-      const pinPart = pinNames.join(' & ');
-      const midPart = areaName ? `중간 위치는 ${areaName} 입니다` : '';
-      const badge = pinPart && midPart
-        ? `📍 ${pinPart}  ▶  ${midPart}`
-        : pinPart ? `📍 ${pinPart} 중간` : areaName ? `📍 ${areaName} 근처` : '📍 —';
-      document.getElementById('res-area').textContent = badge;
-    });
-  } else {
-    const pinPart = pinNames.join(' & ');
-    document.getElementById('res-area').textContent = pinPart ? `📍 ${pinPart} 중간` : '📍 —';
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.4, maxOutputTokens: 2000 },
+          }),
+        }
+      );
+      const d = await r.json();
+      const text = d?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      return res.status(200).json({ text });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
   }
 
-  const condLabel = S.condition.main || (S.condition.selected || []).join('·') || S.type;
-  document.getElementById('res-subtitle') && (
-    document.getElementById('res-subtitle').textContent = `${radiusUsed}km 이내의 ${condLabel} 추천`
-  );
-
-  const container = document.getElementById('rest-cards'); container.innerHTML = '';
-  const RANK_LBL = ['🥇 1위', '🥈 2위', '🥉 3위'];
-  const RC = ['r1', 'r2', 'r3'];
-
-  rests.slice(0,3).forEach((r,i) => {
-    const card = document.createElement('div'); card.className = 'rest-card';
-    const urls = r.photo_urls || [];
-    let photoHtml = '';
-    if (urls.length >= 2) {
-      photoHtml = `
-        <div class="rank-badge ${RC[i]}" style="position:absolute;top:10px;left:10px;z-index:2">${RANK_LBL[i]}</div>
-        <div class="photo-stack">
-          <img class="photo-stack-img" src="${urls[0]}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-          <div class="photo-stack-ph" style="display:none">🏠</div>
-          <img class="photo-stack-img" src="${urls[1]}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-          <div class="photo-stack-ph" style="display:none">🍽️</div>
-        </div>`;
-    } else if (urls.length === 1) {
-      photoHtml = `
-        <div class="rank-badge ${RC[i]}" style="position:absolute;top:10px;left:10px;z-index:2">${RANK_LBL[i]}</div>
-        <img class="rest-photo" src="${urls[0]}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="photo-placeholder" style="display:none">🍽️</div>`;
-    } else {
-      photoHtml = `
-        <div class="rank-badge ${RC[i]}" style="position:absolute;top:10px;left:10px;z-index:2">${RANK_LBL[i]}</div>
-        <div class="photo-placeholder">🍽️</div>`;
-    }
-
-    const meta = [
-      r.rating ? `<span class="rest-rating">★ ${r.rating}</span><span class="rest-reviews">(${(r.user_ratings_total||0).toLocaleString()})</span>` : '',
-      r.price_level ? `<span class="rest-price">${'₩'.repeat(r.price_level)}</span>` : '',
-    ].filter(Boolean).join('');
-
-    const naverUrl = buildNaverUrl(r);
-    card.innerHTML = `
-      <div class="rank-bar ${RC[i]}"></div>
-      <div class="photo-wrap" style="position:relative">
-        ${photoHtml}
-      </div>
-      <div class="rest-body">
-        <p class="rest-name">${r.display_name||r.name}</p>
-        <p class="rest-desc">${r.description||''}</p>
-        ${meta ? `<div class="rest-meta">${meta}</div>` : ''}
-        ${(r.tags||[]).length ? `<div class="rest-tags">${r.tags.map(t=>`<span class="rest-tag">${t}</span>`).join('')}</div>` : ''}
-        <a href="${naverUrl}" target="_blank" class="btn-naver">🗺 네이버맵으로 보기</a>
-      </div>`;
-    container.appendChild(card);
-  });
-}
-
-function retryRecommend() {
-  S.pins = [];
-  markers.forEach(m => m.setMap(null)); markers = [];
-  if (midMark) { midMark.setMap(null); midMark = null; }
-  document.getElementById('mid-banner').classList.remove('show');
-  document.getElementById('loc-error').classList.remove('show');
-  go('s-locations');
-}
-
-function changeCondition() {
-  go('s-condition');
-}
-
-async function shareText() {
-  const condStr = S.condition.main || (S.condition.selected || []).join('·') || '';
-  const pinNames = S.pins.map(p => {
-    const m = (p.label || '').match(/([가-힣]+(?:역|동|읍|면|리))/);
-    return m ? m[1] : (p.label || '').split(' ')[0];
-  }).filter(Boolean);
-
-  const midArea = await new Promise(resolve => {
-    if (!geocoder || !S.rec?.mid) { resolve(''); return; }
-    geocoder.geocode({ location: { lat: S.rec.mid.lat, lng: S.rec.mid.lng }, language: 'ko' }, (res, st) => {
-      if (st === 'OK' && res[0]) {
-        const comps = res[0].address_components;
-        const sub = comps.find(c => c.types.includes('sublocality_level_2') || c.types.includes('sublocality_level_1'));
-        resolve(sub?.long_name || '');
-      } else resolve('');
-    });
-  });
-
-  const rests = S.rec?.restaurants || [];
-  const RANK = ['🥇', '🥈', '🥉'];
-
-  const pinPart = pinNames.join(' & ');
-  const midPart = midArea ? ` = ${midArea}` : '';
-  const header = `📍 ${pinPart} 중간${midPart} (${condStr} ${S.type})`;
-
-  const restLines = rests.slice(0, 3).map((r, i) =>
-    `${RANK[i]} ${r.display_name || r.name} ${buildNaverUrl(r)}`
-  ).join('\n');
-
-  const text = `${header}\n\n${restLines}\n\n🚩 모임 Moim ; Meet in the Middle\n👉 https://moim-moim-tau.vercel.app`;
+  const GKEY = process.env.GOOGLE_PLACES_API_KEY;
+  if (!GKEY) return res.status(500).json({ error: 'Google API key not configured' });
 
   try {
-    await navigator.clipboard.writeText(text);
-    toast('📋 복사됐어요! 카톡에 붙여넣기 하세요');
-  } catch {
-    toast('복사 실패. 직접 선택해서 복사해주세요');
+    if (action === 'nearby') {
+      const { lat, lng, keyword, district } = req.query;
+      const midLat = parseFloat(lat), midLng = parseFloat(lng);
+
+      const NAVER_ID = process.env.NAVER_CLIENT_ID;
+      const NAVER_SECRET = process.env.NAVER_CLIENT_SECRET;
+
+      const toRad = d => d * Math.PI / 180;
+      const distKm = (la1, ln1, la2, ln2) => {
+        const R = 6371, dLa = toRad(la2-la1), dLn = toRad(ln2-ln1);
+        const a = Math.sin(dLa/2)**2 + Math.cos(toRad(la1))*Math.cos(toRad(la2))*Math.sin(dLn/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      };
+
+      let finalResults = [];
+      let radiusUsed = 2.0;
+
+      // ── 1단계: 네이버 로컬 검색
+      if (NAVER_ID && NAVER_SECRET) {
+        const regionPrefix = district || '서울';
+        const naverQuery = `${regionPrefix} ${keyword}`;
+        const naverUrl = `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(naverQuery)}&display=20&sort=random`;
+        try {
+          const naverRes = await fetch(naverUrl, {
+            headers: {
+              'X-Naver-Client-Id': NAVER_ID,
+              'X-Naver-Client-Secret': NAVER_SECRET,
+            },
+          });
+          const naverData = await naverRes.json();
+          const naverItems = naverData.items || [];
+          const withCoords = naverItems.map(item => ({
+            ...item,
+            _lat: parseInt(item.mapy) * 1e-7,
+            _lng: parseInt(item.mapx) * 1e-7,
+          }));
+          let nearby = [];
+          for (const radius of [2.0, 3.5, 5.0]) {
+            nearby = withCoords.filter(item =>
+              distKm(midLat, midLng, item._lat, item._lng) <= radius
+            );
+            radiusUsed = radius;
+            if (nearby.length >= 3) break;
+          }
+          finalResults = nearby;
+        } catch { /* 네이버 실패 시 Google fallback */ }
+      }
+
+      // ── 2단계: Google Text Search로 사진/평점 보완
+      const fields = 'name,rating,user_ratings_total,formatted_address,photos,price_level,opening_hours,place_id,types';
+      const enriched = await Promise.all(finalResults.slice(0, 15).map(async item => {
+        const placeName = item.title
+          ? item.title.replace(/<[^>]+>/g, '')
+          : (item.name || '');
+        const placeAddr = item.roadAddress || item.address || '';
+
+        try {
+          const addrShort = (() => {
+            const guM = placeAddr.match(/([가-힣]+[구군])/);
+            const dongM = placeAddr.match(/[가-힣]+[구군]\s*([가-힣0-9]+(?:동|가|읍|면|리))\b/);
+            return [guM?.[1], dongM?.[1]].filter(Boolean).join(' ');
+          })();
+
+          const q = addrShort ? `${placeName} ${addrShort}` : placeName;
+          const tsUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(q)}&language=ko&key=${GKEY}`;
+          const tsRes = await fetch(tsUrl);
+          const tsData = await tsRes.json();
+          const candidates = (tsData.results || []).slice(0, 3);
+
+          const normalize = s => s.replace(/\s/g, '').toLowerCase();
+          const nName = normalize(placeName);
+
+          const gResult = candidates.find(c => {
+            if (!c.place_id) return false;
+            const gLat = c.geometry?.location?.lat;
+            const gLng = c.geometry?.location?.lng;
+            if (!gLat || !gLng) return false;
+            if (distKm(item._lat, item._lng, gLat, gLng) > 5.0) return false;
+            const gName = normalize(c.name || '');
+            return gName.includes(nName.slice(0, 3)) || nName.includes(gName.slice(0, 3));
+          }) || null;
+
+          if (gResult?.place_id) {
+            const dr = await fetch(`https://maps.googleapis.com/maps/api/place/details/json?place_id=${gResult.place_id}&fields=${fields}&language=ko&key=${GKEY}`);
+            const dd = await dr.json();
+            const detail = dd.result || gResult;
+            return {
+              ...detail,
+              name: placeName,
+              formatted_address: placeAddr || detail.formatted_address || '',
+            };
+          }
+        } catch { /* Google 실패 시 네이버 데이터만 사용 */ }
+
+        return {
+          name: placeName,
+          formatted_address: placeAddr,
+          rating: null,
+          user_ratings_total: 0,
+          photos: [],
+          place_id: null,
+        };
+      }));
+
+      // Google fallback: 네이버 결과가 없을 경우
+      if (!enriched.length) {
+        const textUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent((district || '') + ' ' + keyword)}&location=${lat},${lng}&radius=2000&language=ko&region=kr&key=${GKEY}`;
+        const textRes = await fetch(textUrl);
+        const textData = await textRes.json();
+        const gResults = (textData.results || []).filter(r => {
+          const rl = r.geometry?.location;
+          return rl ? distKm(midLat, midLng, rl.lat, rl.lng) <= 2.0 : false;
+        });
+        if (!gResults.length) return res.status(200).json({ results: [] });
+        const fallbackDetails = await Promise.all(gResults.slice(0, 10).map(async r => {
+          try {
+            const dr = await fetch(`https://maps.googleapis.com/maps/api/place/details/json?place_id=${r.place_id}&fields=${fields}&language=ko&key=${GKEY}`);
+            const dd = await dr.json();
+            return dd.result || r;
+          } catch { return r; }
+        }));
+        enriched.push(...fallbackDetails);
+      }
+
+      if (!enriched.length) return res.status(200).json({ results: [] });
+
+      // ── 3단계: 블로그 snippet 수집 (식당명 기반)
+      if (NAVER_ID && NAVER_SECRET) {
+        await Promise.all(enriched.map(async place => {
+          try {
+            const q = `${place.name} 맛집 후기`;
+            const blogUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(q)}&display=3&sort=sim`;
+            const blogRes = await fetch(blogUrl, {
+              headers: {
+                'X-Naver-Client-Id': NAVER_ID,
+                'X-Naver-Client-Secret': NAVER_SECRET,
+              },
+            });
+            const blogData = await blogRes.json();
+            place.blog_snippets = (blogData.items || []).slice(0, 3).map(item =>
+              (item.title + ' ' + item.description)
+                .replace(/<[^>]+>/g, '')
+                .replace(/&quot;/g, '"')
+                .replace(/&amp;/g, '&')
+                .replace(/&#\d+;/g, '')
+                .slice(0, 200)
+            );
+          } catch {
+            place.blog_snippets = [];
+          }
+        }));
+      }
+
+      // 1순위: Google 매칭 성공 + 평점 3.5↑
+      const tier1 = enriched.filter(r => r.place_id && r.rating >= 3.5);
+      // 2순위: 후보 3개 미만일 때 평점 없는 것으로 보충
+      const tier2 = enriched.filter(r => !r.place_id || !r.rating);
+      const finalFiltered = tier1.length >= 3 ? tier1 : [...tier1, ...tier2].slice(0, Math.max(tier1.length + 3, 5));
+
+      return res.status(200).json({ results: finalFiltered, radiusUsed });
+    }
+
+    // ── 사진 URL 반환
+    if (action === 'photo') {
+      const refs = (photo_references || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 2);
+      const urls = await Promise.all(refs.map(async ref => {
+        try {
+          const r = await fetch(
+            `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxwidth}&photo_reference=${ref}&key=${GKEY}`,
+            { redirect: 'follow' }
+          );
+          return r.url || null;
+        } catch { return null; }
+      }));
+      return res.status(200).json({ photo_urls: urls.filter(Boolean) });
+    }
+
+    return res.status(400).json({ error: 'Invalid action' });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
   }
 }
