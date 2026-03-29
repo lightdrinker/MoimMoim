@@ -26,7 +26,7 @@ function onSearch(val) {
 function pickPlace(placeId, name) {
   document.getElementById('ac-list').classList.remove('show');
   document.getElementById('search-inp').value = '';
-  if (S.pins.length >= S.count) { toast('모든 출발지가 입력됐어요.'); return; }
+  if (Store.getPins().length >= Store.getCount()) { toast('모든 출발지가 입력됐어요.'); return; }
   placesSvc.getDetails({ placeId, fields: ['geometry', 'name'] }, (place, st) => {
     if (st !== 'OK' || !place?.geometry?.location) return;
     addPin(place.geometry.location.lat(), place.geometry.location.lng(), name);

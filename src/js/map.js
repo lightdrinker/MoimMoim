@@ -44,7 +44,7 @@ window._mapCb = function() {
   placesSvc = new google.maps.places.PlacesService(mapInst);
 
   mapInst.addListener('click', e => {
-    if (S.pins.length >= S.count) { toast('모든 출발지가 입력됐어요. 핀을 먼저 삭제해주세요.'); return; }
+    if (Store.getPins().length >= Store.getCount()) { toast('모든 출발지가 입력됐어요. 핀을 먼저 삭제해주세요.'); return; }
     const lat = e.latLng.lat(), lng = e.latLng.lng();
     revGeocode(lat, lng, label => addPin(lat, lng, label));
   });
@@ -62,9 +62,10 @@ function revGeocode(lat, lng, cb) {
 }
 
 function addPin(lat, lng, label) {
-  if (S.pins.length >= S.count) return;
-  const idx = S.pins.length;
-  S.pins.push({ lat, lng, label, count: 1 });
+  const currentPins = Store.getPins();
+  if (currentPins.length >= Store.getCount()) return;
+  const idx = currentPins.length;
+  Store.addPin({ lat, lng, label, count: 1 });
 
   const m = new google.maps.Marker({
     position: { lat, lng }, map: mapInst,
@@ -73,17 +74,18 @@ function addPin(lat, lng, label) {
   });
   markers.push(m);
 
-  document.getElementById('map-hint').style.opacity = S.pins.length >= S.count ? '0' : '1';
+  document.getElementById('map-hint').style.opacity = Store.getPins().length >= Store.getCount() ? '0' : '1';
   renderPinList(); calcMidUI(); updateGoBtn();
 }
 
 function removePin(idx) {
-  S.pins.splice(idx, 1);
+  Store.removePin(idx);
   markers.forEach(m => m.setMap(null)); markers = [];
   if (midMark) { midMark.setMap(null); midMark = null; }
   document.getElementById('mid-banner').classList.remove('show');
 
-  S.pins.forEach((p, i) => {
+  const pins = Store.getPins();
+  pins.forEach((p, i) => {
     const m = new google.maps.Marker({
       position: { lat: p.lat, lng: p.lng }, map: mapInst,
       label: { text: String(i + 1), color: '#0A0A0A', fontWeight: '700', fontSize: '12px' },
@@ -92,16 +94,19 @@ function removePin(idx) {
     markers.push(m);
   });
 
-  document.getElementById('map-hint').style.opacity = S.pins.length >= S.count ? '0' : '1';
+  document.getElementById('map-hint').style.opacity = pins.length >= Store.getCount() ? '0' : '1';
   renderPinList();
-  if (S.pins.length >= 2) calcMidUI();
+  if (pins.length >= 2) calcMidUI();
   updateGoBtn();
 }
 
 function renderPinList() {
   const list = document.getElementById('pin-list'); list.innerHTML = '';
-  const totalAssigned = S.pins.reduce((s,p) => s + (p.count||1), 0);
-  S.pins.forEach((p, i) => {
+  const pins = Store.getPins();
+  const countLimit = Store.getCount();
+  const totalAssigned = pins.reduce((s,p) => s + (p.count||1), 0);
+  
+  pins.forEach((p, i) => {
     const el = document.createElement('div');
     el.className = 'pin-item filled';
     el.innerHTML = `
@@ -110,25 +115,27 @@ function renderPinList() {
       <div class="pin-count-wrap">
         <button class="pin-count-btn" onclick="changePinCount(${i},-1)" ${(p.count||1)<=1?'disabled':''}>−</button>
         <span class="pin-count-num">${p.count||1}명</span>
-        <button class="pin-count-btn" onclick="changePinCount(${i},1)" ${totalAssigned>=S.count?'disabled':''}>+</button>
+        <button class="pin-count-btn" onclick="changePinCount(${i},1)" ${totalAssigned>=countLimit?'disabled':''}>+</button>
       </div>
       <button class="pin-del" onclick="removePin(${i})">✕</button>`;
     list.appendChild(el);
   });
-  const remaining = S.count - S.pins.length;
-  for (let i = 0; i < Math.min(remaining, S.count - S.pins.length); i++) {
-    if (S.pins.length < S.count) {
+  
+  const remaining = countLimit - pins.length;
+  for (let i = 0; i < Math.min(remaining, countLimit - pins.length); i++) {
+    if (pins.length < countLimit) {
       const el = document.createElement('div');
       el.className = 'pin-item';
-      el.innerHTML = `<div class="pin-dot">${S.pins.length + i + 1}</div><span class="pin-label">지도를 탭하거나 검색하세요</span>`;
+      el.innerHTML = `<div class="pin-dot">${pins.length + i + 1}</div><span class="pin-label">지도를 탭하거나 검색하세요</span>`;
       list.appendChild(el);
     }
   }
 }
 
 function calcMidUI() {
-  if (S.pins.length < 2) return;
-  const mid = weightedCentroid(S.pins);
+  const pins = Store.getPins();
+  if (pins.length < 2) return;
+  const mid = weightedCentroid(pins);
   if (midMark) midMark.setMap(null);
   midMark = new google.maps.Marker({
     position: { lat: mid.lat, lng: mid.lng }, map: mapInst,
@@ -137,41 +144,47 @@ function calcMidUI() {
   });
 
   const bounds = new google.maps.LatLngBounds();
-  S.pins.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
+  pins.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
   bounds.extend({ lat: mid.lat, lng: mid.lng });
   mapInst.fitBounds(bounds, { top: 40, bottom: 40, left: 30, right: 30 });
 
   document.getElementById('mid-banner').classList.add('show');
-  const pinSummary = S.pins.map(p => `${p.label}(${p.count||1}명)`).join(' · ');
+  const pinSummary = pins.map(p => `${p.label}(${p.count||1}명)`).join(' · ');
   document.getElementById('mid-text').textContent = `${pinSummary} → 가중 중간 지점 계산 완료`;
 }
 
 function changePinCount(idx, delta) {
-  const totalAssigned = S.pins.reduce((s,p) => s + (p.count||1), 0);
-  const cur = S.pins[idx].count || 1;
+  const pins = Store.getPins();
+  const totalAssigned = pins.reduce((s,p) => s + (p.count||1), 0);
+  const cur = pins[idx].count || 1;
   const next = cur + delta;
   if (next < 1) return;
-  if (delta > 0 && totalAssigned >= S.count) return;
-  S.pins[idx].count = next;
+  if (delta > 0 && totalAssigned >= Store.getCount()) return;
+  
+  Store.updatePinCount(idx, next);
   renderPinList(); updateGoBtn();
-  if (S.pins.length >= 2) calcMidUI();
+  if (Store.getPins().length >= 2) calcMidUI();
 }
 
 function updateGoBtn() {
-  const totalAssigned = S.pins.reduce((s,p) => s + (p.count||1), 0);
-  const hasEnoughPins = S.pins.length >= 2;
-  const allFilled = totalAssigned >= S.count;
+  const pins = Store.getPins();
+  const totalAssigned = pins.reduce((s,p) => s + (p.count||1), 0);
+  const hasEnoughPins = pins.length >= 2;
+  const allFilled = totalAssigned >= Store.getCount();
   document.getElementById('btn-go').disabled = !(hasEnoughPins && allFilled);
 }
 
 function changeCount(d) {
-  const v = S.count + d;
+  const v = Store.getCount() + d;
   if (v < 2 || v > 8) return;
-  S.count = v;
+  Store.setCount(v);
   document.getElementById('count-disp').textContent = v;
   document.getElementById('btn-minus').disabled = v <= 2;
   document.getElementById('btn-plus').disabled = v >= 8;
-  while (S.pins.length > S.count) removePin(S.pins.length - 1);
+  
+  while (Store.getPins().length > Store.getCount()) {
+    Store.removePin(Store.getPins().length - 1);
+  }
   renderPinList(); updateGoBtn();
 }
 
