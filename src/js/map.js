@@ -168,10 +168,11 @@ function changePinCount(idx, delta) {
 
 function updateGoBtn() {
   const pins = Store.getPins();
-  const totalAssigned = pins.reduce((s,p) => s + (p.count||1), 0);
   const hasEnoughPins = pins.length >= 2;
-  const allFilled = totalAssigned >= Store.getCount();
-  document.getElementById('btn-go').disabled = !(hasEnoughPins && allFilled);
+  
+  // [수정됨] 기존 UX 결함(allFilled 검증) 제거. 
+  // 핀이 2개 이상 찍혔다면 잔여 인원수와 상관없이 무조건 버튼 활성화 허용
+  document.getElementById('btn-go').disabled = !hasEnoughPins;
 }
 
 function changeCount(d) {
