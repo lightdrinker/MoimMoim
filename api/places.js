@@ -145,7 +145,6 @@ export default async function handler(req, res) {
           photos: [],
           place_id: null,
           naver_thumbnail: item.thumbnail || null,
-
         };
       }));
 
