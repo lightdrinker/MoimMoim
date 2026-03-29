@@ -27,12 +27,12 @@ export default async function handler(req, res) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.4, maxOutputTokens: 8000 },
+            generationConfig: { temperature: 0.4, maxOutputTokens: 8192 },
           }),
         }
       );
       const d = await r.json();
-      console.log('Gemini raw response:', JSON.stringify(d)); // ← 이 줄 추가
+      console.log('Gemini raw response:', JSON.stringify(d));
       const text = d?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       return res.status(200).json({ text });
     } catch (e) {
@@ -50,12 +50,24 @@ export default async function handler(req, res) {
 
       const NAVER_ID = process.env.NAVER_CLIENT_ID;
       const NAVER_SECRET = process.env.NAVER_CLIENT_SECRET;
+      const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
       const toRad = d => d * Math.PI / 180;
       const distKm = (la1, ln1, la2, ln2) => {
         const R = 6371, dLa = toRad(la2-la1), dLn = toRad(ln2-ln1);
         const a = Math.sin(dLa/2)**2 + Math.cos(toRad(la1))*Math.cos(toRad(la2))*Math.sin(dLn/2)**2;
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      };
+
+      // 주소에서 구/동 추출 헬퍼
+      const extractDong = (addr) => {
+        if (!addr) return '';
+        const cleaned = addr
+          .replace(/^대한민국\s*/, '')
+          .replace(/^(서울특별시|경기도|부산광역시|인천광역시|대구광역시|대전광역시|광주광역시|울산광역시|세종특별자치시)\s*/, '');
+        const dongM = cleaned.match(/[가-힣]+[구군]\s*([가-힣0-9]+(?:동|가|읍|면|리))\b/);
+        const guM = cleaned.match(/([가-힣]+[구군])/);
+        return dongM?.[1] || guM?.[1] || '';
       };
 
       let finalResults = [];
@@ -173,25 +185,39 @@ export default async function handler(req, res) {
       // ── 3단계: 블로그 snippet + 네이버 이미지 수집
       if (NAVER_ID && NAVER_SECRET) {
         await Promise.all(enriched.map(async place => {
-          // 블로그 snippet
+          // 블로그 snippet - 위치 포함 쿼리 우선, 결과 부족하면 이름만으로 재시도
           try {
-            const q = `${place.name} 맛집 후기`;
-            const blogUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(q)}&display=3&sort=sim`;
-            const blogRes = await fetch(blogUrl, {
-              headers: {
-                'X-Naver-Client-Id': NAVER_ID,
-                'X-Naver-Client-Secret': NAVER_SECRET,
-              },
-            });
-            const blogData = await blogRes.json();
-            place.blog_snippets = (blogData.items || []).slice(0, 3).map(item =>
-              (item.title + ' ' + item.description)
-                .replace(/<[^>]+>/g, '')
-                .replace(/&quot;/g, '"')
-                .replace(/&amp;/g, '&')
-                .replace(/&#\d+;/g, '')
-                .slice(0, 200)
-            );
+            const dong = extractDong(place.formatted_address);
+            const queryWithLoc = dong ? `${dong} ${place.name}` : place.name;
+
+            const fetchBlog = async (q) => {
+              const blogUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(q)}&display=3&sort=sim`;
+              const blogRes = await fetch(blogUrl, {
+                headers: {
+                  'X-Naver-Client-Id': NAVER_ID,
+                  'X-Naver-Client-Secret': NAVER_SECRET,
+                },
+              });
+              const blogData = await blogRes.json();
+              return (blogData.items || []).slice(0, 3).map(item =>
+                (item.title + ' ' + item.description)
+                  .replace(/<[^>]+>/g, '')
+                  .replace(/&quot;/g, '"')
+                  .replace(/&amp;/g, '&')
+                  .replace(/&#\d+;/g, '')
+                  .slice(0, 200)
+              );
+            };
+
+            // 1차: 위치 포함 쿼리
+            let snippets = await fetchBlog(queryWithLoc);
+
+            // 2차: 결과 부족하면 이름만으로 재시도
+            if (snippets.length < 2 && dong) {
+              snippets = await fetchBlog(place.name);
+            }
+
+            place.blog_snippets = snippets;
           } catch {
             place.blog_snippets = [];
           }
@@ -219,11 +245,42 @@ export default async function handler(req, res) {
         }));
       }
 
+      // ── 4단계: 블로그 snippet 없는 식당 → Gemini Grounding으로 보완
+      if (GEMINI_KEY) {
+        await Promise.all(enriched.map(async place => {
+          if (place.blog_snippets && place.blog_snippets.length > 0) return;
+          try {
+            const dong = extractDong(place.formatted_address);
+            const locStr = dong ? `(위치: ${dong})` : '';
+            const groundingPrompt = `${place.name} ${locStr} 식당의 실제 대표 메뉴와 분위기를 간단히 알려주세요. 100자 이내로.`;
+            const gr = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: groundingPrompt }] }],
+                  tools: [{ googleSearch: {} }],
+                  generationConfig: { temperature: 0.2, maxOutputTokens: 512 },
+                }),
+              }
+            );
+            const gd = await gr.json();
+            const groundingText = gd?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            if (groundingText) {
+              place.blog_snippets = [groundingText.slice(0, 300)];
+            }
+          } catch {
+            // Grounding 실패 시 무시
+          }
+        }));
+      }
+
       // 1순위: Google 매칭 성공 + 평점 3.5↑
       const tier1 = enriched.filter(r => r.place_id && r.rating >= 3.5);
-      // 2순위: 후보 3개 미만일 때 평점 없는 것으로 보충
+      // 2순위: 나머지
       const tier2 = enriched.filter(r => !r.place_id || !r.rating);
-      const finalFiltered = tier1.length >= 3 ? tier1 : [...tier1, ...tier2].slice(0, Math.max(tier1.length + 3, 5));
+      const finalFiltered = [...tier1, ...tier2].slice(0, 10);
 
       return res.status(200).json({ results: finalFiltered, radiusUsed });
     }
