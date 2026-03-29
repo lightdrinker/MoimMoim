@@ -63,27 +63,37 @@ function buildKw() {
 }
 
 async function runGemini(restaurants) {
-  const list = restaurants.map((r,i) => {
-    const typeLabel = (r.types || [])
-      .filter(t => !['point_of_interest','establishment','premise'].includes(t))
-      .slice(0, 2).join(', ');
-    const summary = r.editorial_summary?.overview || '';
-    return `${i+1}. ${r.name} (평점:${r.rating||'없음'}, 리뷰:${r.user_ratings_total||0}개, 주소:${r.formatted_address||''}, 업종:${typeLabel||'식당'}${summary ? ', 설명:'+summary : ''})`;
-  }).join('\n');
+  const list = restaurants.map((r, i) => {
+    const blogText = (r.blog_snippets || []).join(' | ').slice(0, 300);
+    return `${i+1}. ${r.name}
+   주소: ${r.formatted_address || ''}
+   블로그 후기: ${blogText || '없음'}`;
+  }).join('\n\n');
+
   const cstr = S.condition.main || S.condition.selected?.join(', ') || '상관없음';
   const prompt = `당신은 한국 맛집 큐레이터입니다.
 
 [지시사항]
-- 아래 식당 목록에서 "${S.type}" 모임 (조건: ${cstr})에 가장 잘 맞는 TOP 3를 선정하세요.
-- 각 식당의 description은 그 식당의 대표 음식과 분위기를 포함한 자연스러운 추천 문장 1-2개로 작성하세요.
-- 블로그 후기 문장을 그대로 복사하거나 인용하지 마세요. 반드시 새로 작성하세요.
-- tags는 분위기/음식/특징을 나타내는 짧은 한국어 태그로 작성하세요.
+아래 식당 목록에서 "${S.type}" 모임 (조건: ${cstr})에 가장 잘 맞는 TOP 3를 선정하세요.
+각 식당의 description과 tags는 반드시 블로그 후기 내용을 기반으로 아래 형식에 맞게 작성하세요.
+
+[description 형식 - 반드시 이 형식 그대로]
+🍽 대표메뉴: (블로그에서 언급된 음식/음료명 최대 3개, 없으면 이 줄 생략)
+✨ 한줄요약: (분위기·특징을 15자 이내로 압축)
+
+[tags 형식]
+블로그 후기에서 추출한 음식/분위기/특징 키워드 3개
+
+[주의사항]
+- 블로그 원문 문장을 절대 그대로 복사하지 마세요
+- 한줄요약은 반드시 15자 이내
+- 블로그 내용이 없으면 식당명과 주소로 유추해서 작성
 
 식당 목록:
 ${list}
 
 반드시 아래 JSON 배열 형식으로만 응답하세요. 다른 텍스트 없이 JSON만:
-[{"rank":1,"name":"식당명","description":"이 식당 추천 이유 1-2문장","tags":["태그1","태그2","태그3"]},{"rank":2,"name":"식당명","description":"이 식당 추천 이유 1-2문장","tags":["태그1","태그2","태그3"]},{"rank":3,"name":"식당명","description":"이 식당 추천 이유 1-2문장","tags":["태그1","태그2","태그3"]}]`;
+[{"rank":1,"name":"식당명","description":"🍽 대표메뉴: 메뉴1, 메뉴2\n✨ 한줄요약: 15자이내요약","tags":["태그1","태그2","태그3"]},{"rank":2,"name":"식당명","description":"🍽 대표메뉴: 메뉴1, 메뉴2\n✨ 한줄요약: 15자이내요약","tags":["태그1","태그2","태그3"]},{"rank":3,"name":"식당명","description":"🍽 대표메뉴: 메뉴1, 메뉴2\n✨ 한줄요약: 15자이내요약","tags":["태그1","태그2","태그3"]}]`;
 
   try {
     const res = await fetch('/api/places?action=gemini', {
@@ -239,7 +249,7 @@ function renderResult(rests, mid, radiusUsed) {
       </div>
       <div class="rest-body">
         <p class="rest-name">${r.display_name||r.name}</p>
-        <p class="rest-desc">${r.description||''}</p>
+        <p class="rest-desc">${(r.description||'').replace(/\n/g, '<br>')}</p>
         ${meta ? `<div class="rest-meta">${meta}</div>` : ''}
         ${(r.tags||[]).length ? `<div class="rest-tags">${r.tags.map(t=>`<span class="rest-tag">${t}</span>`).join('')}</div>` : ''}
         <a href="${naverUrl}" target="_blank" class="btn-naver">🗺 네이버맵으로 보기</a>
