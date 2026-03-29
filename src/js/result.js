@@ -20,9 +20,15 @@ async function getRecommend() {
     step(4);
     const withPhotos = await loadPhotos(enriched);
 
+    // 사진 있는 곳 우선 정렬 (Top 3 안에 사진 없는 곳 배치 방지)
+    const photosFirst = [
+      ...withPhotos.filter(r => r.photo_urls?.length > 0),
+      ...withPhotos.filter(r => !r.photo_urls?.length),
+    ];
+
     const radiusUsed = nd.radiusUsed || 2.0;
-    S.rec = { restaurants: withPhotos, mid, radiusUsed };
-    renderResult(withPhotos, mid, radiusUsed);
+    S.rec = { restaurants: photosFirst, mid, radiusUsed };
+    renderResult(photosFirst, mid, radiusUsed);
     go('s-result');
   } catch(e) {
     document.getElementById('loc-error').textContent = e.message || '오류가 발생했어요. 다시 시도해주세요.';
@@ -35,30 +41,39 @@ function buildKw() {
   const c = S.condition;
   const map = {
     '술자리': c.main?.includes('와인') ? '와인바' :
-              c.main?.includes('사케') ? '이자카야' :
-              c.main?.includes('막걸리') ? '막걸리집' :
-              c.main?.includes('맥주') ? '맥주 호프' :
-              c.main?.includes('상관') ? '술집' :
-              '소주 맛집',
-    '회식': c.main?.includes('중식') ? '중식 중식당' :
-            c.main?.includes('일식') ? '일식 일식집' :
-            c.main?.includes('양식') ? '양식' :
-            c.main?.includes('상관') ? '맛집' :
-            '한식 고기집',
-    '가족': '가족 식사',
+              c.main?.includes('사케') ? '이자카야 사케' :
+              c.main?.includes('막걸리') ? '막걸리 전통주' :
+              c.main?.includes('맥주') ? '호프집 생맥주' :
+              c.main?.includes('상관') ? '술집 주점' :
+              '소주 안주 술집',
+    '회식': c.main?.includes('중식') ? '중식당 중국집' :
+            c.main?.includes('일식') ? '일식당' :
+            c.main?.includes('양식') ? '양식 레스토랑' :
+            c.main?.includes('상관') ? '단체 식당 맛집' :
+            '한식 고기집 구이',
+    '가족': (() => {
+      const sel = c.selected || [];
+      const parts = [
+        sel.some(s => s.includes('독립')) && '단체룸 독립공간',
+        sel.some(s => s.includes('유아')) && '유아의자 키즈',
+        sel.some(s => s.includes('주차')) && '주차',
+        sel.some(s => s.includes('조용')) && '조용한',
+      ].filter(Boolean);
+      return (parts.slice(0, 2).join(' ') || '가족') + ' 식당';
+    })(),
     '식사': c.main === '상관없음' || !c.main ? '맛집' :
-            c.main === '한식' ? '한식 한식당' :
-            c.main === '중식' ? '중식 중식당' :
-            c.main === '일식' ? '일식 일식집' :
-            c.main === '양식' ? '양식' :
-            c.main === '동남아' ? '동남아음식점' : '맛집',
-    '카페': c.main?.includes('빵') ? '빵 베이커리 맛집' :
+            c.main === '한식' ? '한식당' :
+            c.main === '중식' ? '중식당 중국집' :
+            c.main === '일식' ? '일식당' :
+            c.main === '양식' ? '양식 레스토랑' :
+            c.main === '동남아' ? '동남아 음식 아시안' : '맛집',
+    '카페': c.main?.includes('빵') ? '베이커리 빵집' :
             c.main?.includes('디저트') ? '디저트 카페' :
-            c.main?.includes('음료') ? '카페 커피 맛집' :
+            c.main?.includes('음료') ? '카페 커피' :
             '카페',
-    '청첩': c.main?.includes('맛집') ? '청첩모임 맛집' :
-            c.main?.includes('분위기') ? '청첩모임 분위기' :
-            '청첩모임 조용한',
+    '청첩': c.main?.includes('맛집') ? '모임 맛집 레스토랑' :
+            c.main?.includes('분위기') ? '분위기 좋은 레스토랑' :
+            '조용한 레스토랑 모임',
   };
   const kw = map[S.type] || '맛집';
   return [kw, 'restaurant', kw];
@@ -66,10 +81,14 @@ function buildKw() {
 
 async function runGemini(restaurants) {
   const list = restaurants.map((r, i) => {
+    const menuText = (r.menu_snippets || []).join(' | ').slice(0, 200);
     const blogText = (r.blog_snippets || []).join(' | ').slice(0, 300);
+    const ratingStr = r.rating ? `${r.rating}점 (리뷰 ${(r.user_ratings_total||0).toLocaleString()}개)` : '없음';
     return `${i+1}. ${r.name}
    주소: ${r.formatted_address || ''}
-   블로그 후기: ${blogText || '없음'}`;
+   평점: ${ratingStr}
+   메뉴 블로그: ${menuText || '없음'}
+   후기 블로그: ${blogText || '없음'}`;
   }).join('\n\n');
 
   const cstr = S.condition.main || S.condition.selected?.join(', ') || '상관없음';
@@ -77,19 +96,25 @@ async function runGemini(restaurants) {
 
 [지시사항]
 아래 식당 목록에서 "${S.type}" 모임 (조건: ${cstr})에 잘 맞는 TOP 10을 순위대로 선정하세요.
-각 식당의 description과 tags는 반드시 블로그 후기 내용을 기반으로 아래 형식에 맞게 작성하세요.
+블로그 후기가 있는 식당을 우선 순위로 배치하고, 평점도 순위 결정에 반영하세요.
+각 식당의 description과 tags는 반드시 블로그 후기에 실제로 존재하는 내용만 기반으로 작성하세요.
 
-[description template]
- 대표메뉴: (블로그에서 언급된 음식/음료명 최대 3개를 적절한 음식 이모티콘 삽입해서 넣기)
+[description template - 블로그 후기가 있는 경우]
+ 대표메뉴: (메뉴 블로그에서 언급된 음식·음료명 최대 3개, 없으면 후기 블로그에서 추출, 적절한 이모티콘 삽입)
  분위기·특징을 15자 이내로 요약해서 딱 보면 어떤 곳인지 알 수 있게 작성 (이모티콘 활용 권장)
 
+[description template - 블로그 후기가 없는 경우]
+ 후기 정보 없음
+
 [tags 형식]
-블로그 후기에서 추출한 음식/분위기/특징 키워드 3개
+블로그 후기에서 추출한 음식/분위기/특징 키워드 3개 (후기 없으면 빈 배열 [])
 
 [주의사항]
 - 블로그 원문 문장을 절대 그대로 복사하지 마세요
 - 한줄요약은 반드시 15자 이내
-- 블로그 내용이 없으면 식당명과 주소로 유추해서 작성
+- 대표메뉴는 블로그에서 언급된 음식·음료·메뉴 관련 단어를 추출하세요. 블로그에 아무 음식 관련 언급이 없을 때만 공란으로 두세요
+- 블로그에 전혀 근거 없는 메뉴나 분위기는 지어내지 마세요
+- 블로그 후기가 없는 식당은 description을 "후기 정보 없음"으로만 표시하세요
 - 반드시 10개 모두 선정하세요 (식당이 10개 미만이면 있는 만큼만)
 
 식당 목록:
@@ -153,7 +178,8 @@ async function loadPhotos(rests) {
     try {
       const res = await fetch(`/api/places?action=photo&photo_references=${refs.join(',')}&maxwidth=600`);
       const d = await res.json();
-      return { ...r, photo_urls: d.photo_urls || [] };
+      const urls = d.photo_urls?.length ? d.photo_urls : (r.naver_image_urls || []);
+      return { ...r, photo_urls: urls };
     } catch {
       return { ...r, photo_urls: r.naver_image_urls?.length ? r.naver_image_urls : [] };
     }
@@ -264,7 +290,10 @@ function renderResult(rests, mid, radiusUsed) {
         <p class="rest-desc">${(r.description||'').replace(/\n/g, '<br>')}</p>
         ${meta ? `<div class="rest-meta">${meta}</div>` : ''}
         ${(r.tags||[]).length ? `<div class="rest-tags">${r.tags.map(t=>`<span class="rest-tag">${t}</span>`).join('')}</div>` : ''}
-        <a href="${naverUrl}" target="_blank" class="btn-naver">🗺 네이버맵으로 보기</a>
+        <div class="card-action-row">
+          <a href="${naverUrl}" target="_blank" class="btn-naver">🗺 네이버맵으로 보기</a>
+          <button class="btn-share-single" onclick="shareCard(${globalRank})" title="공유">↗</button>
+        </div>
       </div>`;
     container.appendChild(card);
   });
@@ -282,6 +311,26 @@ function nextRecommend() {
   S.recPage = (S.recPage + 1) % totalPages;
   renderResult(rests, S.rec.mid, S.rec.radiusUsed);
   window.scrollTo(0, 0);
+}
+
+async function shareCard(globalRank) {
+  const rests = S.rec?.restaurants || [];
+  const r = rests[globalRank - 1];
+  if (!r) return;
+  const name = r.display_name || r.name;
+  const url = buildNaverUrl(r);
+  const rankStr = globalRank <= 3 ? ['🥇','🥈','🥉'][globalRank-1] : `${globalRank}위`;
+  const text = `${rankStr} ${name}\n🗺 ${url}\n\n🚩 모임 Moim ; Meet in the Middle\n👉 https://moim-moim-tau.vercel.app`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: name, text, url });
+    } else {
+      await navigator.clipboard.writeText(text);
+      toast('📋 복사됐어요!');
+    }
+  } catch {
+    try { await navigator.clipboard.writeText(text); toast('📋 복사됐어요!'); } catch { toast('공유 실패'); }
+  }
 }
 
 function retryRecommend() {
@@ -317,14 +366,18 @@ async function shareText() {
 
   const rests = S.rec?.restaurants || [];
   const RANK = ['🥇', '🥈', '🥉'];
+  const startIdx = S.recPage * 3;
+  const pageRests = rests.slice(startIdx, startIdx + 3);
 
   const pinPart = pinNames.join(' & ');
   const midPart = midArea ? ` = ${midArea}` : '';
   const header = `📍 ${pinPart} 중간${midPart} (${condStr} ${S.type})`;
 
-  const restLines = rests.slice(0, 3).map((r, i) =>
-    `${RANK[i]} ${r.display_name || r.name} ${buildNaverUrl(r)}`
-  ).join('\n');
+  const restLines = pageRests.map((r, i) => {
+    const rank = startIdx + i + 1;
+    const rankStr = rank <= 3 ? RANK[rank - 1] : `${rank}위`;
+    return `${rankStr} ${r.display_name || r.name} ${buildNaverUrl(r)}`;
+  }).join('\n');
 
   const text = `${header}\n\n${restLines}\n\n🚩 모임 Moim ; Meet in the Middle\n👉 https://moim-moim-tau.vercel.app`;
 

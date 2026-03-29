@@ -297,6 +297,16 @@ body {
   box-shadow: 0 2px 10px rgba(3,199,90,0.3);
 }
 .btn-naver:active { opacity: .85; }
+.card-action-row { display: flex; gap: 8px; align-items: stretch; }
+.card-action-row .btn-naver { flex: 1; width: auto; }
+.btn-share-single {
+  width: 44px; flex-shrink: 0; border-radius: var(--radius-sm);
+  background: var(--surface2); border: 1.5px solid var(--border2);
+  color: var(--text2); font-size: 17px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+}
+.btn-share-single:active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
 
 .res-bottom { padding: 8px 16px 100px; display: flex; flex-direction: column; gap: 10px; }
 
