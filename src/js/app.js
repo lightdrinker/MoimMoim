@@ -1,47 +1,14 @@
-// ── 구글맵 API 키 (GCP 리퍼러 제한 적용됨)
+// ── 구글맵 API 키
 const GMAP_KEY = 'AIzaSyCXZh8Z8tLzBoAACSQyCLVYU6JK-T-OdUM';
 
-// ── STATE (캡슐화된 상태 관리자)
-const Store = (function() {
-  const state = {
-    type: '', typeIcon: '', condition: {}, count: 2, pins: [], rec: null,
-  };
-
-  return {
-    // [Getters] 데이터 가져오기 (복사본 반환으로 원본 훼손 방지)
-    getType: () => state.type,
-    getTypeIcon: () => state.typeIcon,
-    getCondition: () => ({ ...state.condition }),
-    getCount: () => state.count,
-    getPins: () => [...state.pins],
-    getRec: () => state.rec,
-
-    // [Setters] 데이터 수정하기
-    setType: (type, icon) => { state.type = type; state.typeIcon = icon; },
-    setConditionMain: (val) => { state.condition.main = val; },
-    initMultiCondition: () => { state.condition.selected = []; },
-    toggleMultiCondition: (opt) => {
-      if (!state.condition.selected) state.condition.selected = [];
-      const idx = state.condition.selected.indexOf(opt);
-      if (idx === -1) state.condition.selected.push(opt);
-      else state.condition.selected.splice(idx, 1);
-    },
-    setCount: (count) => { state.count = count; },
-    addPin: (pin) => {
-      if (state.pins.length < state.count) state.pins.push(pin);
-    },
-    removePin: (index) => { state.pins.splice(index, 1); },
-    updatePinCount: (index, count) => { 
-      if (state.pins[index]) state.pins[index].count = count; 
-    },
-    clearPins: () => { state.pins = []; },
-    setRecommendation: (data) => { state.rec = data; },
-    reset: () => {
-      state.type = ''; state.typeIcon = ''; state.condition = {};
-      state.count = 2; state.pins = []; state.rec = null;
-    }
-  };
-})();
+// ── STATE
+const S = {
+  type: '', typeIcon: '',
+  condition: {},
+  count: 2,
+  pins: [],
+  rec: null,
+};
 
 // ── CONDITIONS
 const COND = {
@@ -69,7 +36,7 @@ function go(id) {
 }
 
 function resetAll() {
-  Store.reset();
+  Object.assign(S, { type: '', typeIcon: '', condition: {}, count: 2, pins: [], rec: null });
   document.querySelectorAll('.chip').forEach(c => c.classList.remove('sel'));
   document.getElementById('btn-type-next').disabled = true;
   mapReady = false; mapInst = null;
@@ -78,7 +45,7 @@ function resetAll() {
 
 // ── STEP 1
 function selType(name, icon) {
-  Store.setType(name, icon);
+  S.type = name; S.typeIcon = icon;
   document.querySelectorAll('.chip').forEach(c => c.classList.remove('sel'));
   document.getElementById('type-' + name).classList.add('sel');
   document.getElementById('btn-type-next').disabled = false;
@@ -86,11 +53,11 @@ function selType(name, icon) {
 
 // ── STEP 2
 function renderCond() {
-  const cfg = COND[Store.getType()]; if (!cfg) return;
+  const cfg = COND[S.type]; if (!cfg) return;
   document.getElementById('cond-title').textContent = cfg.title;
   document.getElementById('cond-sub').textContent = cfg.sub;
   const body = document.getElementById('cond-body');
-  body.innerHTML = ''; 
+  body.innerHTML = ''; S.condition = {};
   const btn = document.getElementById('btn-cond-next');
 
   if (cfg.type === 'single') {
@@ -101,20 +68,21 @@ function renderCond() {
       el.innerHTML = `<div class="opt-radio"></div><span>${opt}</span>`;
       el.onclick = () => {
         list.querySelectorAll('.opt-item').forEach(i => i.classList.remove('sel'));
-        el.classList.add('sel'); Store.setConditionMain(opt); btn.disabled = false;
+        el.classList.add('sel'); S.condition.main = opt; btn.disabled = false;
       };
       list.appendChild(el);
     });
     body.appendChild(list);
   } else if (cfg.type === 'multi') {
-    btn.disabled = false; Store.initMultiCondition();
+    btn.disabled = false; S.condition.selected = [];
     const list = document.createElement('div'); list.className = 'opt-list';
     cfg.opts.forEach(opt => {
       const el = document.createElement('div'); el.className = 'opt-item';
       el.innerHTML = `<div class="opt-radio"></div><span>${opt}</span>`;
       el.onclick = () => {
         el.classList.toggle('sel');
-        Store.toggleMultiCondition(opt);
+        const idx = S.condition.selected.indexOf(opt);
+        if (idx === -1) S.condition.selected.push(opt); else S.condition.selected.splice(idx, 1);
       };
       list.appendChild(el);
     });
