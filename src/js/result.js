@@ -135,13 +135,15 @@ async function loadPhotos(rests) {
   return Promise.all(rests.map(async r => {
     const refs = (r.photos || []).slice(0, 2).map(p => p.photo_reference).filter(Boolean);
     if (!refs.length) {
-      return { ...r, photo_urls: r.naver_thumbnail ? [r.naver_thumbnail] : [] };
+      return { ...r, photo_urls: r.naver_image_urls?.length ? r.naver_image_urls : [] };
     }
     try {
       const res = await fetch(`/api/places?action=photo&photo_references=${refs.join(',')}&maxwidth=600`);
       const d = await res.json();
       return { ...r, photo_urls: d.photo_urls || [] };
-    } catch { return { ...r, photo_urls: r.naver_thumbnail ? [r.naver_thumbnail] : [] }; }
+    } catch {
+      return { ...r, photo_urls: r.naver_image_urls?.length ? r.naver_image_urls : [] };
+    }
   }));
 }
 
@@ -259,8 +261,7 @@ function changeCondition() {
   go('s-condition');
 }
 
-
- async function shareText() {
+async function shareText() {
   const condStr = S.condition.main || (S.condition.selected || []).join('·') || '';
   const pinNames = S.pins.map(p => {
     const m = (p.label || '').match(/([가-힣]+(?:역|동|읍|면|리))/);

@@ -133,7 +133,6 @@ export default async function handler(req, res) {
               ...detail,
               name: placeName,
               formatted_address: placeAddr || detail.formatted_address || '',
-              naver_thumbnail: item.thumbnail || null,
             };
           }
         } catch { /* Google 실패 시 네이버 데이터만 사용 */ }
@@ -145,7 +144,6 @@ export default async function handler(req, res) {
           user_ratings_total: 0,
           photos: [],
           place_id: null,
-          naver_thumbnail: item.thumbnail || null,
         };
       }));
 
@@ -171,9 +169,10 @@ export default async function handler(req, res) {
 
       if (!enriched.length) return res.status(200).json({ results: [] });
 
-      // ── 3단계: 블로그 snippet 수집 (식당명 기반)
+      // ── 3단계: 블로그 snippet + 네이버 이미지 수집
       if (NAVER_ID && NAVER_SECRET) {
         await Promise.all(enriched.map(async place => {
+          // 블로그 snippet
           try {
             const q = `${place.name} 맛집 후기`;
             const blogUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(q)}&display=3&sort=sim`;
@@ -194,6 +193,27 @@ export default async function handler(req, res) {
             );
           } catch {
             place.blog_snippets = [];
+          }
+
+          // Google 사진 없는 식당만 네이버 이미지 검색
+          if (!place.photos?.length) {
+            try {
+              const imgQ = `${place.name} 맛집 음식`;
+              const imgUrl = `https://openapi.naver.com/v1/search/image.json?query=${encodeURIComponent(imgQ)}&display=3`;
+              const imgRes = await fetch(imgUrl, {
+                headers: {
+                  'X-Naver-Client-Id': NAVER_ID,
+                  'X-Naver-Client-Secret': NAVER_SECRET,
+                },
+              });
+              const imgData = await imgRes.json();
+              place.naver_image_urls = (imgData.items || [])
+                .slice(0, 2)
+                .map(item => item.thumbnail)
+                .filter(Boolean);
+            } catch {
+              place.naver_image_urls = [];
+            }
           }
         }));
       }
