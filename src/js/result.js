@@ -135,13 +135,13 @@ async function loadPhotos(rests) {
   return Promise.all(rests.map(async r => {
     const refs = (r.photos || []).slice(0, 2).map(p => p.photo_reference).filter(Boolean);
     if (!refs.length) {
-     return { ...r, photo_urls: r.naver_thumbnail ? [r.naver_thumbnail] : [] };
-}
+      return { ...r, photo_urls: r.naver_thumbnail ? [r.naver_thumbnail] : [] };
+    }
     try {
       const res = await fetch(`/api/places?action=photo&photo_references=${refs.join(',')}&maxwidth=600`);
       const d = await res.json();
       return { ...r, photo_urls: d.photo_urls || [] };
-    } catch { return { ...r, photo_urls: [] }; }
+    } catch { return { ...r, photo_urls: r.naver_thumbnail ? [r.naver_thumbnail] : [] }; }
   }));
 }
 

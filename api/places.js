@@ -133,6 +133,7 @@ export default async function handler(req, res) {
               ...detail,
               name: placeName,
               formatted_address: placeAddr || detail.formatted_address || '',
+              naver_thumbnail: item.thumbnail || null,
             };
           }
         } catch { /* Google 실패 시 네이버 데이터만 사용 */ }
