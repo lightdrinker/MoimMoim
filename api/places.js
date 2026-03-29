@@ -144,6 +144,8 @@ export default async function handler(req, res) {
           user_ratings_total: 0,
           photos: [],
           place_id: null,
+          naver_thumbnail: item.thumbnail || null,
+
         };
       }));
 
