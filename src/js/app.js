@@ -8,6 +8,7 @@ const S = {
   count: 2,
   pins: [],
   rec: null,
+  recPage: 0,
 };
 
 // ── CONDITIONS
@@ -36,7 +37,7 @@ function go(id) {
 }
 
 function resetAll() {
-  Object.assign(S, { type: '', typeIcon: '', condition: {}, count: 2, pins: [], rec: null });
+  Object.assign(S, { type: '', typeIcon: '', condition: {}, count: 2, pins: [], rec: null, recPage: 0 });
   document.querySelectorAll('.chip').forEach(c => c.classList.remove('sel'));
   document.getElementById('btn-type-next').disabled = true;
   mapReady = false; mapInst = null;

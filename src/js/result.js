@@ -1,4 +1,5 @@
 async function getRecommend() {
+  S.recPage = 0;
   go('s-loading'); step(0);
   try {
     step(1);
@@ -19,8 +20,9 @@ async function getRecommend() {
     step(4);
     const withPhotos = await loadPhotos(enriched);
 
-    S.rec = { restaurants: withPhotos, mid };
-    renderResult(withPhotos, mid, nd.radiusUsed || 2.0);
+    const radiusUsed = nd.radiusUsed || 2.0;
+    S.rec = { restaurants: withPhotos, mid, radiusUsed };
+    renderResult(withPhotos, mid, radiusUsed);
     go('s-result');
   } catch(e) {
     document.getElementById('loc-error').textContent = e.message || '오류가 발생했어요. 다시 시도해주세요.';
@@ -74,7 +76,7 @@ async function runGemini(restaurants) {
   const prompt = `당신은 한국 맛집 큐레이터입니다.
 
 [지시사항]
-아래 식당 목록에서 "${S.type}" 모임 (조건: ${cstr})에 가장 잘 맞는 TOP 3를 선정하세요.
+아래 식당 목록에서 "${S.type}" 모임 (조건: ${cstr})에 잘 맞는 TOP 10을 순위대로 선정하세요.
 각 식당의 description과 tags는 반드시 블로그 후기 내용을 기반으로 아래 형식에 맞게 작성하세요.
 
 [description template]
@@ -88,12 +90,13 @@ async function runGemini(restaurants) {
 - 블로그 원문 문장을 절대 그대로 복사하지 마세요
 - 한줄요약은 반드시 15자 이내
 - 블로그 내용이 없으면 식당명과 주소로 유추해서 작성
+- 반드시 10개 모두 선정하세요 (식당이 10개 미만이면 있는 만큼만)
 
 식당 목록:
 ${list}
 
 반드시 아래 JSON 배열 형식으로만 응답하세요. 다른 텍스트 없이 JSON만:
-[{"rank":1,"name":"식당명","description":"🍽 대표메뉴: 메뉴1, 메뉴2\n✨ 한줄요약: 15자이내요약","tags":["태그1","태그2","태그3"]},{"rank":2,"name":"식당명","description":"🍽 대표메뉴: 메뉴1, 메뉴2\n✨ 한줄요약: 15자이내요약","tags":["태그1","태그2","태그3"]},{"rank":3,"name":"식당명","description":"🍽 대표메뉴: 메뉴1, 메뉴2\n✨ 한줄요약: 15자이내요약","tags":["태그1","태그2","태그3"]}]`;
+[{"rank":1,"name":"식당명","description":"🍽 대표메뉴: 메뉴1, 메뉴2\n✨ 한줄요약: 15자이내요약","tags":["태그1","태그2","태그3"]},{"rank":2,"name":"식당명","description":"🍽 대표메뉴: 메뉴1, 메뉴2\n✨ 한줄요약: 15자이내요약","tags":["태그1","태그2","태그3"]}]`;
 
   try {
     const res = await fetch('/api/places?action=gemini', {
@@ -131,7 +134,7 @@ ${list}
     meal_takeaway: '포장가능', meal_delivery: '배달', night_club: '나이트클럽',
     liquor_store: '주류', food: '식당',
   };
-  return restaurants.slice(0,3).map((r,i) => {
+  return restaurants.slice(0, 10).map((r, i) => {
     const desc = (r.blog_snippets || []).find(s => s && s.trim()) || '';
     const rawTags = (r.types || [])
       .filter(t => !['point_of_interest','establishment','food','premise'].includes(t))
@@ -208,17 +211,26 @@ function renderResult(rests, mid, radiusUsed) {
     document.getElementById('res-subtitle').textContent = `${radiusLabel}km 이내의 ${condLabel} 추천`
   );
 
-  const container = document.getElementById('rest-cards'); container.innerHTML = '';
-  const RANK_LBL = ['🥇 1위', '🥈 2위', '🥉 3위'];
-  const RC = ['r1', 'r2', 'r3'];
+  // 페이지 기반 슬라이싱
+  const startIdx = S.recPage * 3;
+  const pageRests = rests.slice(startIdx, startIdx + 3);
 
-  rests.slice(0,3).forEach((r,i) => {
+  const container = document.getElementById('rest-cards'); container.innerHTML = '';
+  const RC = ['r1', 'r2', 'r3'];
+  const MEDALS = ['🥇', '🥈', '🥉'];
+
+  pageRests.forEach((r, i) => {
+    const globalRank = startIdx + i + 1;
+    const rankLabel = globalRank <= 3
+      ? `${MEDALS[globalRank - 1]} ${globalRank}위`
+      : `${globalRank}위`;
+
     const card = document.createElement('div'); card.className = 'rest-card';
     const urls = r.photo_urls || [];
     let photoHtml = '';
     if (urls.length >= 2) {
       photoHtml = `
-        <div class="rank-badge ${RC[i]}" style="position:absolute;top:10px;left:10px;z-index:2">${RANK_LBL[i]}</div>
+        <div class="rank-badge ${RC[i]}" style="position:absolute;top:10px;left:10px;z-index:2">${rankLabel}</div>
         <div class="photo-stack">
           <img class="photo-stack-img" src="${urls[0]}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
           <div class="photo-stack-ph" style="display:none">🏠</div>
@@ -227,12 +239,12 @@ function renderResult(rests, mid, radiusUsed) {
         </div>`;
     } else if (urls.length === 1) {
       photoHtml = `
-        <div class="rank-badge ${RC[i]}" style="position:absolute;top:10px;left:10px;z-index:2">${RANK_LBL[i]}</div>
+        <div class="rank-badge ${RC[i]}" style="position:absolute;top:10px;left:10px;z-index:2">${rankLabel}</div>
         <img class="rest-photo" src="${urls[0]}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
         <div class="photo-placeholder" style="display:none">🍽️</div>`;
     } else {
       photoHtml = `
-        <div class="rank-badge ${RC[i]}" style="position:absolute;top:10px;left:10px;z-index:2">${RANK_LBL[i]}</div>
+        <div class="rank-badge ${RC[i]}" style="position:absolute;top:10px;left:10px;z-index:2">${rankLabel}</div>
         <div class="photo-placeholder">🍽️</div>`;
     }
 
@@ -256,6 +268,20 @@ function renderResult(rests, mid, radiusUsed) {
       </div>`;
     container.appendChild(card);
   });
+
+  // Next 버튼 표시/숨김 (3개 초과 결과가 있을 때만)
+  const btnNext = document.getElementById('btn-next-rec');
+  if (btnNext) {
+    btnNext.style.display = rests.length > 3 ? '' : 'none';
+  }
+}
+
+function nextRecommend() {
+  const rests = S.rec?.restaurants || [];
+  const totalPages = Math.ceil(rests.length / 3);
+  S.recPage = (S.recPage + 1) % totalPages;
+  renderResult(rests, S.rec.mid, S.rec.radiusUsed);
+  window.scrollTo(0, 0);
 }
 
 function retryRecommend() {
