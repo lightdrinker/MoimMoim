@@ -32,6 +32,7 @@ export default async function handler(req, res) {
         }
       );
       const d = await r.json();
+      console.log('Gemini raw response:', JSON.stringify(d)); // ← 이 줄 추가
       const text = d?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       return res.status(200).json({ text });
     } catch (e) {
