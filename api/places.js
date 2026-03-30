@@ -238,10 +238,9 @@ export default async function handler(req, res) {
           } catch { return []; }
         };
 
-        const fetchImage = async (name, dong) => {
+        const fetchImageQuery = async (q) => {
           try {
-            const imgQ = dong ? `${name} ${dong} 맛집` : `${name} 음식`;
-            const imgUrl = `https://openapi.naver.com/v1/search/image.json?query=${encodeURIComponent(imgQ)}&display=3`;
+            const imgUrl = `https://openapi.naver.com/v1/search/image.json?query=${encodeURIComponent(q)}&display=3`;
             const imgRes = await fetch(imgUrl, {
               headers: { 'X-Naver-Client-Id': NAVER_ID, 'X-Naver-Client-Secret': NAVER_SECRET },
             });
@@ -253,6 +252,32 @@ export default async function handler(req, res) {
           } catch { return []; }
         };
 
+        // 영문 제거한 이름 (e.g. "버누드 BurnWood" → "버누드")
+        const koreanOnly = (name) => name.replace(/[A-Za-z0-9\s]+/g, '').replace(/\s+/g, ' ').trim();
+
+        const fetchImage = async (name, dong, keyword) => {
+          // 1차: 이름 + 동 + 맛집
+          let imgs = await fetchImageQuery(dong ? `${name} ${dong} 맛집` : `${name} 맛집`);
+          if (imgs.length) return imgs;
+
+          // 2차: 이름 단독
+          imgs = await fetchImageQuery(name);
+          if (imgs.length) return imgs;
+
+          // 3차: 영문 제거한 이름 (영문 혼합 장소명 대응)
+          const koName = koreanOnly(name);
+          if (koName && koName !== name) {
+            imgs = await fetchImageQuery(koName);
+            if (imgs.length) return imgs;
+          }
+
+          // 4차: 키워드 + 동 (최후 수단)
+          if (keyword && dong) {
+            imgs = await fetchImageQuery(`${keyword} ${dong} 음식`);
+          }
+          return imgs;
+        };
+
         await Promise.all(enriched.map(async place => {
           const dong = extractDong(place.formatted_address);
           const queryWithLoc = dong ? `${dong} ${place.name}` : place.name;
@@ -261,7 +286,7 @@ export default async function handler(req, res) {
           const [snippetsWithLoc, menuSnippets, naverImages] = await Promise.all([
             fetchBlog(queryWithLoc),
             fetchBlog(`${place.name} 메뉴`),
-            fetchImage(place.name, dong),
+            fetchImage(place.name, dong, keyword),
           ]);
 
           // 위치 결과가 부족할 때만 이름 단독 재시도 (1회만)
