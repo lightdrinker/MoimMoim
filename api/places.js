@@ -94,6 +94,16 @@ export default async function handler(req, res) {
       let finalResults = [];
       let radiusUsed = 2.0;
 
+      // 네이버 카테고리 필터: 음식점/카페가 아닌 업종 제거
+      const NAVER_ALLOWED_CAT = ['음식점', '카페', '베이커리'];
+      const NAVER_BLOCKED_CAT = ['쇼핑', '서비스업', '여행', '숙박', '교육', '의료', '금융', '공공기관', '스포츠', '문화'];
+      const isNaverFoodPlace = (item) => {
+        const cat = item.category || '';
+        if (!cat) return true; // 카테고리 없으면 통과 (Google로 검증)
+        if (NAVER_BLOCKED_CAT.some(b => cat.includes(b))) return false;
+        return true; // 음식점 카테고리 없어도 차단 카테고리 아니면 통과
+      };
+
       // ── 1단계: 네이버 로컬 검색
       if (NAVER_ID && NAVER_SECRET) {
         const regionPrefix = district || '서울';
@@ -107,7 +117,7 @@ export default async function handler(req, res) {
             },
           });
           const naverData = await naverRes.json();
-          const naverItems = naverData.items || [];
+          const naverItems = (naverData.items || []).filter(isNaverFoodPlace);
           const withCoords = naverItems.map(item => ({
             ...item,
             _lat: parseInt(item.mapy) * 1e-7,
@@ -304,10 +314,25 @@ export default async function handler(req, res) {
         }));
       }
 
+      // Google types 필터: 음식점/카페가 아닌 업종 제거
+      const GOOGLE_BLOCKED_TYPES = [
+        'grocery_or_supermarket', 'supermarket', 'convenience_store',
+        'department_store', 'shopping_mall', 'store', 'clothing_store',
+        'liquor_store', 'wholesale_store', 'gas_station', 'car_dealer',
+        'insurance_agency', 'real_estate_agency', 'bank', 'atm',
+        'hospital', 'pharmacy', 'doctor', 'school', 'university',
+        'lodging', 'hotel',
+      ];
+      const isGoogleFoodPlace = (r) => {
+        if (!r.types || !r.types.length) return true; // types 없으면(Naver only) 통과
+        return !r.types.some(t => GOOGLE_BLOCKED_TYPES.includes(t));
+      };
+      const enrichedFiltered = enriched.filter(isGoogleFoodPlace);
+
       // 1순위: Google 매칭 성공 + 평점 3.5↑
-      const tier1 = enriched.filter(r => r.place_id && r.rating >= 3.5);
+      const tier1 = enrichedFiltered.filter(r => r.place_id && r.rating >= 3.5);
       // 2순위: 나머지
-      const tier2 = enriched.filter(r => !r.place_id || !r.rating);
+      const tier2 = enrichedFiltered.filter(r => !r.place_id || !r.rating);
       const finalFiltered = [...tier1, ...tier2].slice(0, 10);
 
       return res.status(200).json({ results: finalFiltered, radiusUsed });
