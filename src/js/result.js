@@ -313,6 +313,66 @@ function nextRecommend() {
   window.scrollTo(0, 0);
 }
 
+async function shareResultUrl() {
+  const rests = S.rec?.restaurants || [];
+  const startIdx = S.recPage * 3;
+  const pageRests = rests.slice(startIdx, startIdx + 3);
+
+  const data = {
+    t: document.getElementById('res-title')?.textContent || '',
+    a: document.getElementById('res-area')?.textContent || '',
+    p: pageRests.map((r, i) => ({
+      n: r.display_name || r.name,
+      u: buildNaverUrl(r),
+      d: (r.description || '').slice(0, 100),
+      r: startIdx + i + 1,
+    }))
+  };
+
+  const encoded = encodeURIComponent(JSON.stringify(data));
+  const url = `https://moim-moim-tau.vercel.app/#share=${encoded}`;
+
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: data.t, text: `${data.a} ${data.t}`, url });
+    } else {
+      await navigator.clipboard.writeText(url);
+      toast('🔗 링크 복사됐어요!');
+    }
+  } catch {
+    try { await navigator.clipboard.writeText(url); toast('🔗 링크 복사됐어요!'); } catch { toast('공유 실패'); }
+  }
+}
+
+function showSharedResult(data) {
+  document.getElementById('shared-title').textContent = data.t || '';
+  document.getElementById('shared-area').textContent = data.a || '';
+
+  const container = document.getElementById('shared-cards');
+  container.innerHTML = '';
+  const MEDALS = ['🥇', '🥈', '🥉'];
+  const RC = ['r1', 'r2', 'r3'];
+
+  (data.p || []).forEach(p => {
+    const rank = p.r || 1;
+    const rankStr = rank <= 3 ? `${MEDALS[rank - 1]} ${rank}위` : `${rank}위`;
+    const rc = RC[(rank - 1) % 3];
+    const card = document.createElement('div');
+    card.className = 'rest-card';
+    card.innerHTML = `
+      <div class="rank-bar ${rc}"></div>
+      <div class="rest-body">
+        <p style="font-size:12px;color:var(--accent);font-weight:700;margin-bottom:4px">${rankStr}</p>
+        <p class="rest-name">${p.n}</p>
+        <p class="rest-desc">${(p.d || '').replace(/\n/g, '<br>')}</p>
+        <a href="${p.u}" target="_blank" class="btn-naver">🗺 네이버맵으로 보기</a>
+      </div>`;
+    container.appendChild(card);
+  });
+
+  go('s-shared');
+}
+
 async function shareCard(globalRank) {
   const rests = S.rec?.restaurants || [];
   const r = rests[globalRank - 1];

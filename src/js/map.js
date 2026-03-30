@@ -110,7 +110,7 @@ function renderPinList() {
       <div class="pin-count-wrap">
         <button class="pin-count-btn" onclick="changePinCount(${i},-1)" ${(p.count||1)<=1?'disabled':''}>−</button>
         <span class="pin-count-num">${p.count||1}명</span>
-        <button class="pin-count-btn" onclick="changePinCount(${i},1)" ${(totalAssigned>=S.count || S.pins.length < 2)?'disabled':''}>+</button>
+        <button class="pin-count-btn" onclick="changePinCount(${i},1)" ${totalAssigned>=S.count?'disabled':''}>+</button>
       </div>
       <button class="pin-del" onclick="removePin(${i})">✕</button>`;
     list.appendChild(el);
@@ -151,7 +151,6 @@ function changePinCount(idx, delta) {
   const cur = S.pins[idx].count || 1;
   const next = cur + delta;
   if (next < 1) return;
-  if (delta > 0 && S.pins.length < 2) return;
   if (delta > 0 && totalAssigned >= S.count) return;
   S.pins[idx].count = next;
   renderPinList(); updateGoBtn();
@@ -160,7 +159,7 @@ function changePinCount(idx, delta) {
 
 function updateGoBtn() {
   const totalAssigned = S.pins.reduce((s,p) => s + (p.count||1), 0);
-  const hasEnoughPins = S.pins.length >= 2;
+  const hasEnoughPins = S.pins.length >= 1;
   const allFilled = totalAssigned >= S.count;
   document.getElementById('btn-go').disabled = !(hasEnoughPins && allFilled);
 }

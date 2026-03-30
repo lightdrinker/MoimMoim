@@ -101,6 +101,16 @@ function step(n) {
   }
 }
 
+window.addEventListener('DOMContentLoaded', () => {
+  const hash = location.hash;
+  if (hash.startsWith('#share=')) {
+    try {
+      const data = JSON.parse(decodeURIComponent(hash.slice(7)));
+      showSharedResult(data);
+    } catch { /* 잘못된 공유 링크 */ }
+  }
+});
+
 function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');

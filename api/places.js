@@ -40,6 +40,27 @@ export default async function handler(req, res) {
     }
   }
 
+  if (action === 'naver-image') {
+    const imageUrl = decodeURIComponent(req.query.url || '');
+    if (!imageUrl || !imageUrl.startsWith('http')) return res.status(400).end();
+    try {
+      const r = await fetch(imageUrl, {
+        headers: {
+          'Referer': 'https://www.naver.com',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      });
+      if (!r.ok) return res.status(r.status).end();
+      const buffer = await r.arrayBuffer();
+      const contentType = r.headers.get('content-type') || 'image/jpeg';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.end(Buffer.from(buffer));
+    } catch {
+      return res.status(500).end();
+    }
+  }
+
   const GKEY = process.env.GOOGLE_PLACES_API_KEY;
   if (!GKEY) return res.status(500).json({ error: 'Google API key not configured' });
 
@@ -244,7 +265,7 @@ export default async function handler(req, res) {
               const imgData = await imgRes.json();
               place.naver_image_urls = (imgData.items || [])
                 .slice(0, 2)
-                .map(item => item.thumbnail)
+                .map(item => item.thumbnail ? `/api/places?action=naver-image&url=${encodeURIComponent(item.thumbnail)}` : null)
                 .filter(Boolean);
             } catch {
               place.naver_image_urls = [];
