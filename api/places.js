@@ -137,7 +137,7 @@ export default async function handler(req, res) {
 
       // ── 2단계: Google Text Search로 사진/평점 보완
       const fields = 'name,rating,user_ratings_total,formatted_address,photos,price_level,opening_hours,place_id,types';
-      const enriched = await Promise.all(finalResults.slice(0, 15).map(async item => {
+      const enriched = await Promise.all(finalResults.slice(0, 10).map(async item => {
         const placeName = item.title
           ? item.title.replace(/<[^>]+>/g, '')
           : (item.name || '');
@@ -218,76 +218,71 @@ export default async function handler(req, res) {
 
       if (!enriched.length) return res.status(200).json({ results: [] });
 
-      // ── 3단계: 블로그 snippet + 네이버 이미지 수집
+      // ── 3단계: 블로그 snippet + 네이버 이미지 수집 (장소당 병렬 처리)
       if (NAVER_ID && NAVER_SECRET) {
-        await Promise.all(enriched.map(async place => {
-          // 블로그 snippet - 위치 포함 쿼리 우선, 결과 부족하면 이름만으로 재시도
+        const fetchBlog = async (q) => {
           try {
-            const dong = extractDong(place.formatted_address);
-            const queryWithLoc = dong ? `${dong} ${place.name}` : place.name;
+            const blogUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(q)}&display=3&sort=sim`;
+            const blogRes = await fetch(blogUrl, {
+              headers: { 'X-Naver-Client-Id': NAVER_ID, 'X-Naver-Client-Secret': NAVER_SECRET },
+            });
+            const blogData = await blogRes.json();
+            return (blogData.items || []).slice(0, 3).map(item =>
+              (item.title + ' ' + item.description)
+                .replace(/<[^>]+>/g, '')
+                .replace(/&quot;/g, '"')
+                .replace(/&amp;/g, '&')
+                .replace(/&#\d+;/g, '')
+                .slice(0, 200)
+            );
+          } catch { return []; }
+        };
 
-            const fetchBlog = async (q) => {
-              const blogUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(q)}&display=3&sort=sim`;
-              const blogRes = await fetch(blogUrl, {
-                headers: {
-                  'X-Naver-Client-Id': NAVER_ID,
-                  'X-Naver-Client-Secret': NAVER_SECRET,
-                },
-              });
-              const blogData = await blogRes.json();
-              return (blogData.items || []).slice(0, 3).map(item =>
-                (item.title + ' ' + item.description)
-                  .replace(/<[^>]+>/g, '')
-                  .replace(/&quot;/g, '"')
-                  .replace(/&amp;/g, '&')
-                  .replace(/&#\d+;/g, '')
-                  .slice(0, 200)
-              );
-            };
+        const fetchImage = async (name, dong) => {
+          try {
+            const imgQ = dong ? `${name} ${dong} 맛집` : `${name} 음식`;
+            const imgUrl = `https://openapi.naver.com/v1/search/image.json?query=${encodeURIComponent(imgQ)}&display=3`;
+            const imgRes = await fetch(imgUrl, {
+              headers: { 'X-Naver-Client-Id': NAVER_ID, 'X-Naver-Client-Secret': NAVER_SECRET },
+            });
+            const imgData = await imgRes.json();
+            return (imgData.items || [])
+              .slice(0, 2)
+              .map(item => item.thumbnail ? `/api/places?action=naver-image&url=${encodeURIComponent(item.thumbnail)}` : null)
+              .filter(Boolean);
+          } catch { return []; }
+        };
 
-            // 1차: 위치 포함 쿼리
-            let snippets = await fetchBlog(queryWithLoc);
+        await Promise.all(enriched.map(async place => {
+          const dong = extractDong(place.formatted_address);
+          const queryWithLoc = dong ? `${dong} ${place.name}` : place.name;
 
-            // 2차: 결과 부족하면 이름만으로 재시도
-            if (snippets.length < 2 && dong) {
-              snippets = await fetchBlog(place.name);
-            }
+          // 위치 블로그 · 메뉴 블로그 · 이미지 동시 요청
+          const [snippetsWithLoc, menuSnippets, naverImages] = await Promise.all([
+            fetchBlog(queryWithLoc),
+            fetchBlog(`${place.name} 메뉴`),
+            fetchImage(place.name, dong),
+          ]);
 
-            place.blog_snippets = snippets;
-
-            // 메뉴 특화 블로그 검색
-            place.menu_snippets = await fetchBlog(`${place.name} 메뉴`);
-          } catch {
-            place.blog_snippets = [];
-            place.menu_snippets = [];
+          // 위치 결과가 부족할 때만 이름 단독 재시도 (1회만)
+          let snippets = snippetsWithLoc;
+          if (snippets.length < 2 && dong) {
+            snippets = await fetchBlog(place.name);
           }
 
-          // 네이버 이미지 백업 (Google 사진 만료 시 fallback용으로 항상 수집)
-          try {
-              const imgQ = `${place.name} 음식 사진`;
-              const imgUrl = `https://openapi.naver.com/v1/search/image.json?query=${encodeURIComponent(imgQ)}&display=3`;
-              const imgRes = await fetch(imgUrl, {
-                headers: {
-                  'X-Naver-Client-Id': NAVER_ID,
-                  'X-Naver-Client-Secret': NAVER_SECRET,
-                },
-              });
-              const imgData = await imgRes.json();
-              place.naver_image_urls = (imgData.items || [])
-                .slice(0, 2)
-                .map(item => item.thumbnail ? `/api/places?action=naver-image&url=${encodeURIComponent(item.thumbnail)}` : null)
-                .filter(Boolean);
-            } catch {
-              place.naver_image_urls = [];
-            }
+          place.blog_snippets = snippets;
+          place.menu_snippets = menuSnippets;
+          place.naver_image_urls = naverImages;
         }));
       }
 
-      // ── 4단계: 블로그 snippet 없는 식당 → Gemini Grounding으로 보완
+      // ── 4단계: 블로그 snippet 없는 식당 → Gemini Grounding으로 보완 (5초 타임아웃)
       if (GEMINI_KEY) {
         await Promise.all(enriched.map(async place => {
           if (place.blog_snippets && place.blog_snippets.length > 0) return;
           try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 5000);
             const dong = extractDong(place.formatted_address);
             const locStr = dong ? `(위치: ${dong})` : '';
             const groundingPrompt = `${place.name} ${locStr} 식당에 대해 검색해서 실제로 확인된 대표 메뉴와 분위기만 100자 이내로 알려주세요. 검색 결과에서 확인된 정보가 없거나 불확실하면 반드시 "정보없음"이라고만 답하세요. 추측하거나 일반적인 내용을 작성하지 마세요.`;
@@ -301,15 +296,17 @@ export default async function handler(req, res) {
                   tools: [{ googleSearch: {} }],
                   generationConfig: { temperature: 0.2, maxOutputTokens: 512 },
                 }),
+                signal: controller.signal,
               }
             );
+            clearTimeout(timer);
             const gd = await gr.json();
             const groundingText = (gd?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
             if (groundingText && !groundingText.includes('정보없음') && groundingText.length > 15) {
               place.blog_snippets = [groundingText.slice(0, 300)];
             }
           } catch {
-            // Grounding 실패 시 무시
+            // Grounding 실패/타임아웃 시 무시
           }
         }));
       }
