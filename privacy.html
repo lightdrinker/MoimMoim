@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>개인정보처리방침 — MoiM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F0EDE8;
+    --surface: #FFFFFF;
+    --surface2: #F7F4F0;
+    --border: rgba(0,0,0,0.06);
+    --border2: rgba(0,0,0,0.11);
+    --grad: linear-gradient(135deg, #F4A8CC 0%, #A878D8 100%);
+    --accent: #A878D8;
+    --text: #1A1814;
+    --text2: #6B6460;
+    --text3: #ABA7A2;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Pretendard', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 0 0 60px;
+  }
+
+  /* 헤더 */
+  .page-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border2);
+    padding: 20px 24px 16px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .header-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+  .logo-mark {
+    width: 32px; height: 32px;
+    background: var(--grad);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .header-title {
+    font-size: 18px;
+    font-weight: 700;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .header-sub {
+    font-size: 12px;
+    color: var(--text3);
+    padding-left: 44px;
+  }
+
+  /* 본문 */
+  .content {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 24px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .intro-card {
+    background: var(--surface);
+    border-radius: 16px;
+    padding: 20px;
+    border: 1px solid var(--border2);
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text2);
+  }
+  .intro-card strong {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .section {
+    background: var(--surface);
+    border-radius: 16px;
+    border: 1px solid var(--border2);
+    overflow: hidden;
+  }
+  .section-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-num {
+    width: 24px; height: 24px;
+    background: var(--grad);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .section-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .section-body {
+    padding: 16px 20px;
+    font-size: 14px;
+    line-height: 1.75;
+    color: var(--text2);
+  }
+  .section-body p { margin-bottom: 10px; }
+  .section-body p:last-child { margin-bottom: 0; }
+  .section-body ul {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .section-body ul li::before {
+    content: '·';
+    color: var(--accent);
+    font-weight: 700;
+    margin-right: 6px;
+  }
+  .section-body ul li {
+    display: flex;
+    align-items: flex-start;
+  }
+  .third-party-item {
+    background: var(--surface2);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    border: 1px solid var(--border);
+  }
+  .third-party-item:last-child { margin-bottom: 0; }
+  .third-party-name {
+    font-weight: 600;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  .third-party-desc {
+    font-size: 13px;
+    color: var(--text2);
+    line-height: 1.6;
+  }
+  .third-party-link {
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    display: inline-block;
+    margin-top: 4px;
+  }
+  .highlight-box {
+    background: rgba(168,120,216,0.07);
+    border: 1px solid rgba(168,120,216,0.2);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--text2);
+    line-height: 1.65;
+  }
+
+  /* 하단 정보 */
+  .footer-card {
+    background: var(--surface);
+    border-radius: 16px;
+    border: 1px solid var(--border2);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .footer-row {
+    display: flex;
+    font-size: 13px;
+    gap: 8px;
+  }
+  .footer-label {
+    color: var(--text3);
+    font-weight: 500;
+    flex-shrink: 0;
+    min-width: 90px;
+  }
+  .footer-value {
+    color: var(--text2);
+  }
+
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 12px;
+    font-size: 13px;
+    color: var(--text2);
+    text-decoration: none;
+    font-family: inherit;
+    transition: all .15s;
+    margin-bottom: 4px;
+  }
+  .back-link:active { background: var(--surface2); }
+
+  @media (max-width: 480px) {
+    .content { padding: 16px 14px; }
+    .section-body { padding: 14px 16px; }
+    .section-header { padding: 14px 16px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="header-top">
+    <div class="logo-mark">🤝</div>
+    <span class="header-title">MoiM</span>
+  </div>
+  <div class="header-sub">개인정보처리방침</div>
+</div>
+
+<div class="content">
+
+  <a href="/" class="back-link">← 서비스로 돌아가기</a>
+
+  <div class="intro-card">
+    <strong>MoiM</strong>(이하 "서비스")은 이용자의 개인정보를 소중히 여기며, 관련 법령을 준수합니다.
+    본 방침은 서비스가 수집하는 정보, 이용 목적, 제3자 제공 현황 및 이용자의 권리를 안내합니다.
+  </div>
+
+  <!-- 1. 수집하는 정보 -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num">1</div>
+      <div class="section-title">수집하는 정보</div>
+    </div>
+    <div class="section-body">
+      <p>서비스는 아래와 같은 정보를 수집할 수 있습니다.</p>
+      <ul>
+        <li><span>출발지 위치 정보 — 이용자가 직접 입력하거나 지도에서 선택한 장소의 좌표 및 주소. 서버에 저장되지 않으며, 장소 추천 API 호출에만 일시적으로 사용됩니다.</span></li>
+        <li><span>검색어 — 역/장소 검색 시 입력한 키워드. 서버에 저장되지 않습니다.</span></li>
+        <li><span>URL 공유 해시 — 공유 링크 생성 시 결과 정보가 URL hash에 인코딩됩니다. 서버에 전송되지 않습니다.</span></li>
+        <li><span>광고 및 분석 쿠키 — 아래 제3자 서비스(Google AdSense 등)가 자동으로 수집할 수 있습니다.</span></li>
+      </ul>
+      <div class="highlight-box">
+        서비스는 회원가입·로그인 기능이 없으며, 이름·이메일·전화번호 등 식별 가능한 개인정보를 직접 수집하지 않습니다.
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. 이용 목적 -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num">2</div>
+      <div class="section-title">정보 이용 목적</div>
+    </div>
+    <div class="section-body">
+      <ul>
+        <li><span>여러 출발지의 가중 중간지점 계산 및 주변 장소 추천</span></li>
+        <li><span>장소 사진·리뷰·평점 등 상세 정보 표시</span></li>
+        <li><span>AI 기반 맞춤 장소 큐레이션 제공</span></li>
+        <li><span>서비스 운영 및 품질 개선</span></li>
+        <li><span>광고 제공 (Google AdSense를 통한 맞춤형 광고)</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 3. 제3자 서비스 -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num">3</div>
+      <div class="section-title">이용하는 제3자 서비스</div>
+    </div>
+    <div class="section-body">
+      <p>서비스 제공을 위해 아래 외부 서비스를 사용합니다. 각 서비스는 독자적인 개인정보처리방침을 가집니다.</p>
+
+      <div class="third-party-item">
+        <div class="third-party-name">Google Maps Platform</div>
+        <div class="third-party-desc">지도 표시, 장소 검색, 사진·평점 조회에 사용됩니다. 이용자의 지도 조작 데이터를 수집할 수 있습니다.</div>
+        <a class="third-party-link" href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google 개인정보처리방침 →</a>
+      </div>
+
+      <div class="third-party-item">
+        <div class="third-party-name">Naver 검색 API</div>
+        <div class="third-party-desc">지역 장소 검색, 블로그 리뷰, 이미지 수집에 사용됩니다. 검색 쿼리가 Naver 서버로 전송됩니다.</div>
+        <a class="third-party-link" href="https://policy.naver.com/policy/privacy.html" target="_blank" rel="noopener">Naver 개인정보처리방침 →</a>
+      </div>
+
+      <div class="third-party-item">
+        <div class="third-party-name">Google Gemini AI</div>
+        <div class="third-party-desc">장소 큐레이션 및 추천 문구 생성에 사용됩니다. 장소 이름·카테고리 등 비식별 정보가 Gemini API로 전송됩니다.</div>
+        <a class="third-party-link" href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google 개인정보처리방침 →</a>
+      </div>
+
+      <div class="third-party-item">
+        <div class="third-party-name">Google AdSense</div>
+        <div class="third-party-desc">서비스 수익화를 위해 Google AdSense 광고가 표시될 수 있습니다. Google은 쿠키 및 유사 기술을 통해 이용자의 관심사를 기반으로 광고를 최적화할 수 있습니다. 이용자는 Google 광고 설정에서 맞춤형 광고를 비활성화할 수 있습니다.</div>
+        <a class="third-party-link" href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener">Google 광고 정책 →</a>
+        <br>
+        <a class="third-party-link" href="https://adssettings.google.com" target="_blank" rel="noopener">광고 개인화 설정 →</a>
+      </div>
+
+      <div class="third-party-item">
+        <div class="third-party-name">Vercel (인프라)</div>
+        <div class="third-party-desc">서비스 호스팅 및 서버리스 API 실행에 사용됩니다. 요청 로그(IP, User-Agent 등)가 일시적으로 수집될 수 있습니다.</div>
+        <a class="third-party-link" href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener">Vercel 개인정보처리방침 →</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. 쿠키 -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num">4</div>
+      <div class="section-title">쿠키(Cookie) 및 유사 기술</div>
+    </div>
+    <div class="section-body">
+      <p>서비스 자체는 쿠키를 사용하지 않습니다. 다만, Google AdSense·Google Maps 등 제3자 서비스가 기능 제공 및 광고 최적화를 위해 쿠키를 사용할 수 있습니다.</p>
+      <ul>
+        <li><span>광고 쿠키: Google이 이용자의 관심사 기반 광고 표시에 사용</span></li>
+        <li><span>기능 쿠키: Google Maps 지도 상태 유지에 사용</span></li>
+      </ul>
+      <p style="margin-top:12px;">브라우저 설정에서 쿠키를 거부하거나 삭제할 수 있으나, 일부 기능이 제한될 수 있습니다.</p>
+    </div>
+  </div>
+
+  <!-- 5. 정보 보관 -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num">5</div>
+      <div class="section-title">정보 보관 기간</div>
+    </div>
+    <div class="section-body">
+      <p>서비스는 이용자 데이터를 서버에 저장하지 않습니다. 위치 정보와 검색어는 API 호출 완료 후 즉시 폐기됩니다.</p>
+      <p>제3자 서비스가 수집하는 정보의 보관 기간은 각 서비스의 개인정보처리방침을 따릅니다.</p>
+    </div>
+  </div>
+
+  <!-- 6. 이용자 권리 -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num">6</div>
+      <div class="section-title">이용자의 권리</div>
+    </div>
+    <div class="section-body">
+      <ul>
+        <li><span>광고 개인화 거부: <a href="https://adssettings.google.com" target="_blank" rel="noopener" style="color:var(--accent)">Google 광고 설정</a>에서 맞춤형 광고를 끌 수 있습니다.</span></li>
+        <li><span>브라우저에서 쿠키 차단 또는 삭제 가능</span></li>
+        <li><span>브라우저 시크릿 모드를 통해 추적 최소화 가능</span></li>
+        <li><span>개인정보 관련 문의는 아래 연락처로 요청 가능</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 7. 방침 변경 -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num">7</div>
+      <div class="section-title">방침 변경 안내</div>
+    </div>
+    <div class="section-body">
+      <p>본 개인정보처리방침은 법령·서비스 변경에 따라 개정될 수 있습니다. 변경 시 본 페이지에 시행일과 함께 공지합니다.</p>
+    </div>
+  </div>
+
+  <!-- 문의 / 시행일 -->
+  <div class="footer-card">
+    <div class="footer-row">
+      <span class="footer-label">서비스명</span>
+      <span class="footer-value">MoiM (모임)</span>
+    </div>
+    <div class="footer-row">
+      <span class="footer-label">운영자</span>
+      <span class="footer-value">개인 운영 서비스</span>
+    </div>
+    <div class="footer-row">
+      <span class="footer-label">문의</span>
+      <span class="footer-value">GitHub Issues — github.com/lightdrinker/MoimMoim</span>
+    </div>
+    <div class="footer-row">
+      <span class="footer-label">시행일</span>
+      <span class="footer-value">2026년 4월 1일</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
