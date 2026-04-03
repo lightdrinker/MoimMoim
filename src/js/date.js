@@ -6,23 +6,23 @@
 const SUPABASE_URL = 'https://rjohcfdmnywqutradryt.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Yy3bIVFJJ58NjFPP0b_b5Q_O4MnL7zw';
 
-// UMD 빌드: window.supabase 자체가 모듈 객체
 const _sb = window.supabase;
 const sb = (_sb && _sb.createClient)
   ? _sb.createClient(SUPABASE_URL, SUPABASE_KEY)
   : null;
 
-if (!sb) console.warn('Supabase 로딩 실패 — localStorage 모드로 동작합니다');
+if (!sb) console.warn('Supabase 로딩 실패');
 
 const DateVote = (() => {
   let hostName = '';
+  let expectedCount = null;
   let selectedDates = [];
   let calYear, calMonth;
   let currentRoomId = null;
   let realtimeSub = null;
   let voteCalYear, voteCalMonth;
-  let roomDates = []; // 호스트가 지정한 날짜
-  let suggestedDates = []; // 참여자가 제안한 날짜
+  let roomDates = [];
+  let suggestedDates = [];
   const MAX_DATES = 5;
 
   // ── Step 1: 이름 입력 ──
@@ -43,6 +43,11 @@ const DateVote = (() => {
     const input = document.getElementById('date-host-name');
     hostName = input.value.trim();
     if (!hostName) return;
+
+    const countInput = document.getElementById('date-expected-count');
+    const val = parseInt(countInput?.value);
+    expectedCount = (val >= 2 && val <= 99) ? val : null;
+
     selectedDates = [];
     initCalendar();
     go('s-date-pick');
@@ -140,7 +145,12 @@ const DateVote = (() => {
   async function createRoom() {
     const { data, error } = await sb
       .from('rooms')
-      .insert({ host_name: hostName, dates: selectedDates, status: 'voting' })
+      .insert({
+        host_name: hostName,
+        dates: selectedDates,
+        status: 'voting',
+        expected_count: expectedCount
+      })
       .select()
       .single();
 
@@ -151,18 +161,20 @@ const DateVote = (() => {
     }
 
     currentRoomId = data.id;
-    // 호스트용 로컬 저장 (내 room임을 기억)
     localStorage.setItem('moim-host-room', currentRoomId);
   }
 
   // ── Step 3: 링크 공유 ──
   function renderShareScreen() {
-    const url = `${location.origin}${location.pathname}#vote=${currentRoomId}`;
+    const voteUrl = `${location.origin}${location.pathname}#vote=${currentRoomId}`;
+    const hostUrl = `${location.origin}${location.pathname}#host=${currentRoomId}`;
 
-    document.getElementById('date-share-link').textContent = url;
+    document.getElementById('date-share-link').textContent = voteUrl;
+    document.getElementById('date-host-link').textContent = hostUrl;
 
     const dateLabels = selectedDates.map(d => formatDateLabel(d)).join(', ');
-    const msg = `📅 모임 날짜 골라주세요!\n\n후보: ${dateLabels}\n\n가능한 날짜에 탭만 하면 돼요 (딱 30초!)\n👉 ${url}`;
+    const countText = expectedCount ? `\n참여 인원: ${expectedCount}명` : '';
+    const msg = `📅 모임 날짜 골라주세요!\n\n후보: ${dateLabels}${countText}\n\n가능한 날짜에 탭만 하면 돼요 (딱 30초!)\n👉 ${voteUrl}`;
     document.getElementById('date-share-msg').textContent = msg;
   }
 
@@ -171,12 +183,16 @@ const DateVote = (() => {
     copyToClipboard(link).then(() => showToast('링크가 복사됐어요!'));
   }
 
+  function copyHostLink() {
+    const link = document.getElementById('date-host-link').textContent;
+    copyToClipboard(link).then(() => showToast('관리 링크가 복사됐어요!'));
+  }
+
   function copyMsg() {
     const msg = document.getElementById('date-share-msg').textContent;
     copyToClipboard(msg).then(() => showToast('메시지가 복사됐어요!'));
   }
 
-  // clipboard fallback (HTTP localhost 대응)
   function copyToClipboard(text) {
     if (navigator.clipboard && window.isSecureContext) {
       return navigator.clipboard.writeText(text);
@@ -195,7 +211,6 @@ const DateVote = (() => {
   async function initVoteScreen(roomId) {
     currentRoomId = roomId;
 
-    // Supabase에서 room 정보 가져오기
     const { data: room, error } = await sb
       .from('rooms')
       .select('*')
@@ -208,9 +223,20 @@ const DateVote = (() => {
       return;
     }
 
-    if (room.status === 'confirmed') {
-      showToast('이미 날짜가 확정된 모임이에요');
-      go('s-home');
+    // 마감된 투표
+    if (room.status === 'closed' || room.status === 'confirmed') {
+      await renderResultScreen(roomId);
+      go('s-date-result');
+      showToast('마감된 투표예요. 결과를 확인해보세요 👀');
+      return;
+    }
+
+    // 이미 투표한 경우
+    const votedKey = `moim-voted-${roomId}`;
+    if (localStorage.getItem(votedKey)) {
+      await renderResultScreen(roomId);
+      go('s-date-result');
+      showToast('이미 투표했어요! 현황을 확인해보세요 😊');
       return;
     }
 
@@ -230,13 +256,39 @@ const DateVote = (() => {
     input.value = '';
     btn.disabled = true;
 
-    // 기존 리스너 중복 방지
     const newInput = input.cloneNode(true);
     input.parentNode.replaceChild(newInput, input);
     newInput.addEventListener('input', checkVoteReady);
 
-    // 투표 달력 초기화
+    // 출발지 자동완성 초기화
+    initDepartureAutocomplete();
+
     initVoteCalendar();
+  }
+
+  // 출발지 Google Places 자동완성
+  function initDepartureAutocomplete() {
+    const input = document.getElementById('date-departure');
+    if (!input) return;
+    input.value = '';
+
+    // Google Maps Places API 사용 가능한 경우에만
+    if (window.google && window.google.maps && window.google.maps.places) {
+      const ac = new google.maps.places.Autocomplete(input, {
+        componentRestrictions: { country: 'kr' },
+        fields: ['name', 'geometry', 'formatted_address'],
+        types: ['establishment', 'geocode']
+      });
+      // 선택 시 value 유지
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace();
+        if (place && place.formatted_address) {
+          input.dataset.address = place.formatted_address;
+          input.dataset.lat = place.geometry?.location?.lat() || '';
+          input.dataset.lng = place.geometry?.location?.lng() || '';
+        }
+      });
+    }
   }
 
   // ── 투표 달력 (제안용) ──
@@ -262,7 +314,6 @@ const DateVote = (() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // 현재 칩에서 투표된 날짜들
     const votedDates = [...document.querySelectorAll('.date-vote-chip.voted')].map(el => el.dataset.date);
 
     let html = '';
@@ -295,20 +346,16 @@ const DateVote = (() => {
     const isHostDate = roomDates.includes(dateStr);
 
     if (isHostDate) {
-      // 호스트 날짜 → 칩 토글
       const chip = document.querySelector(`.date-vote-chip[data-date="${dateStr}"]`);
       if (chip) toggleVote(chip);
     } else {
-      // 새 날짜 제안
       const idx = suggestedDates.indexOf(dateStr);
       if (idx >= 0) {
         suggestedDates.splice(idx, 1);
-        // 칩 제거
         const chip = document.querySelector(`.date-vote-chip[data-date="${dateStr}"]`);
         if (chip) chip.remove();
       } else {
         suggestedDates.push(dateStr);
-        // 칩 추가
         const wrap = document.getElementById('date-vote-chips');
         const label = formatDateLabel(dateStr);
         const btn = document.createElement('button');
@@ -347,6 +394,10 @@ const DateVote = (() => {
     const votedDates = [...document.querySelectorAll('.date-vote-chip.voted')].map(el => el.dataset.date);
     if (!name || votedDates.length === 0 || !currentRoomId) return;
 
+    // 출발지
+    const depInput = document.getElementById('date-departure');
+    const departure = depInput?.value.trim() || null;
+
     // 같은 이름 기존 투표 삭제 후 재투표
     await sb
       .from('participants')
@@ -358,8 +409,9 @@ const DateVote = (() => {
       .from('participants')
       .insert({
         room_id: currentRoomId,
-        name: name,
-        available_dates: votedDates
+        name,
+        available_dates: votedDates,
+        departure
       });
 
     if (error) {
@@ -368,19 +420,24 @@ const DateVote = (() => {
       return;
     }
 
-    await renderResultScreen();
+    // 재투표 방지용 localStorage 저장
+    localStorage.setItem(`moim-voted-${currentRoomId}`, name);
+
+    await renderResultScreen(currentRoomId);
     go('s-date-result');
     showToast('투표 완료! 😊');
   }
 
   // ── Step 5: 집계 결과 ──
-  async function renderResultScreen() {
-    if (!currentRoomId) return;
+  async function renderResultScreen(roomId) {
+    const id = roomId || currentRoomId;
+    if (!id) return;
+    currentRoomId = id;
 
     const { data: room } = await sb
       .from('rooms')
       .select('*')
-      .eq('id', currentRoomId)
+      .eq('id', id)
       .single();
 
     if (!room) return;
@@ -388,69 +445,112 @@ const DateVote = (() => {
     const { data: votes } = await sb
       .from('participants')
       .select('*')
-      .eq('room_id', currentRoomId);
+      .eq('room_id', id);
 
     const sub = document.getElementById('date-result-sub');
     const list = document.getElementById('date-result-list');
     const confirmBtn = document.getElementById('date-confirm-btn');
+    const closeBtn = document.getElementById('date-close-btn');
+    const progressEl = document.getElementById('date-result-progress');
+
+    const isHost = localStorage.getItem('moim-host-room') === id;
+    const isClosed = room.status === 'closed' || room.status === 'confirmed';
+
+    // 진행 상황 텍스트
+    const voteCount = votes?.length || 0;
+    if (room.expected_count) {
+      const pct = Math.min(100, Math.round(voteCount / room.expected_count * 100));
+      sub.textContent = `${voteCount}/${room.expected_count}명 응답 완료`;
+      if (progressEl) {
+        progressEl.style.display = 'block';
+        progressEl.querySelector('.date-progress-bar').style.width = `${pct}%`;
+        progressEl.querySelector('.date-progress-text').textContent = `${pct}%`;
+      }
+    } else {
+      sub.textContent = voteCount === 0 ? '아직 아무도 응답하지 않았어요' : `${voteCount}명이 응답했어요`;
+      if (progressEl) progressEl.style.display = 'none';
+    }
 
     if (!votes || votes.length === 0) {
-      sub.textContent = '아직 아무도 응답하지 않았어요';
-      list.innerHTML = '';
-      confirmBtn.style.display = 'none';
+      list.innerHTML = '<p class="date-result-empty">아직 투표가 없어요</p>';
+      if (confirmBtn) confirmBtn.style.display = 'none';
+      if (closeBtn) closeBtn.style.display = 'none';
+      subscribeRealtime(id);
       return;
     }
 
-    sub.textContent = `${votes.length}명이 응답했어요`;
-
-    // 날짜별 집계
+    // 모든 날짜 집계 (방장 후보 + 참여자 제안)
     const counts = {};
-    room.dates.forEach(d => counts[d] = { count: 0, names: [] });
+    room.dates.forEach(d => counts[d] = { count: 0, names: [], isSuggested: false });
     votes.forEach(v => {
       (v.available_dates || []).forEach(d => {
-        if (counts[d]) {
-          counts[d].count++;
-          counts[d].names.push(v.name);
-        }
+        if (!counts[d]) counts[d] = { count: 0, names: [], isSuggested: true };
+        counts[d].count++;
+        counts[d].names.push(v.name);
       });
     });
 
     const maxCount = Math.max(...Object.values(counts).map(c => c.count));
 
-    list.innerHTML = room.dates.map(d => {
+    // 정렬: 득표 수 내림차순, 같으면 방장 후보 우선
+    const sortedDates = Object.keys(counts).sort((a, b) => {
+      if (counts[b].count !== counts[a].count) return counts[b].count - counts[a].count;
+      return (counts[a].isSuggested ? 1 : 0) - (counts[b].isSuggested ? 1 : 0);
+    });
+
+    list.innerHTML = sortedDates.map(d => {
       const c = counts[d];
       const isBest = c.count === maxCount && c.count > 0;
+      const crownHtml = isBest ? '<span class="date-crown">👑</span>' : '';
+      const suggestedBadge = c.isSuggested ? '<span class="date-suggested-badge">제안</span>' : '';
       return `<div class="date-result-item${isBest ? ' best' : ''}" onclick="DateVote.selectResult('${d}')">
-        <div>
-          <div class="date-result-date">${formatDateLabel(d)}</div>
-          <div class="date-result-names">${c.names.join(', ') || '-'}</div>
+        <div class="date-result-left">
+          ${crownHtml}
+          <div>
+            <div class="date-result-date">${suggestedBadge}${formatDateLabel(d)}</div>
+            <div class="date-result-names">${c.names.join(', ') || '-'}</div>
+          </div>
         </div>
         <div class="date-result-count">${c.count}명</div>
       </div>`;
     }).join('');
 
-    // 호스트만 확정 버튼 보이기
-    const isHost = localStorage.getItem('moim-host-room') === currentRoomId;
-    confirmBtn.style.display = isHost ? 'block' : 'none';
+    // 버튼 표시
+    if (confirmBtn) confirmBtn.style.display = (isHost && !isClosed) ? 'block' : 'none';
+    if (closeBtn) closeBtn.style.display = (isHost && !isClosed) ? 'block' : 'none';
 
-    // 실시간 구독 시작
-    subscribeRealtime();
+    // 마감 상태 표시
+    const closedBanner = document.getElementById('date-closed-banner');
+    if (closedBanner) closedBanner.style.display = isClosed ? 'block' : 'none';
+
+    subscribeRealtime(id);
+  }
+
+  // ── 투표 마감 ──
+  async function closeVoting() {
+    if (!currentRoomId) return;
+    const { error } = await sb
+      .from('rooms')
+      .update({ status: 'closed' })
+      .eq('id', currentRoomId);
+
+    if (error) {
+      showToast('마감에 실패했어요. 다시 시도해주세요');
+      return;
+    }
+    await renderResultScreen(currentRoomId);
+    showToast('투표가 마감됐어요!');
   }
 
   // ── Supabase Realtime 구독 ──
-  function subscribeRealtime() {
-    if (realtimeSub) {
-      sb.removeChannel(realtimeSub);
-    }
-
+  function subscribeRealtime(roomId) {
+    if (realtimeSub) sb.removeChannel(realtimeSub);
+    const id = roomId || currentRoomId;
     realtimeSub = sb
-      .channel(`room-${currentRoomId}`)
+      .channel(`room-${id}`)
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'participants', filter: `room_id=eq.${currentRoomId}` },
-        () => {
-          // 새 투표가 들어오면 집계 화면 자동 갱신
-          renderResultScreen();
-        }
+        { event: '*', schema: 'public', table: 'participants', filter: `room_id=eq.${id}` },
+        () => renderResultScreen(id)
       )
       .subscribe();
   }
@@ -460,11 +560,8 @@ const DateVote = (() => {
     selectedFinalDate = dateStr;
     document.querySelectorAll('.date-result-item').forEach(el => el.classList.remove('picked'));
     const items = document.querySelectorAll('.date-result-item');
-    // room.dates 순서 기준 index 찾기
-    sb.from('rooms').select('dates').eq('id', currentRoomId).single().then(({ data }) => {
-      if (!data) return;
-      const idx = data.dates.indexOf(dateStr);
-      if (idx >= 0 && items[idx]) items[idx].classList.add('picked');
+    items.forEach(el => {
+      if (el.onclick?.toString().includes(`'${dateStr}'`)) el.classList.add('picked');
     });
   }
 
@@ -480,23 +577,54 @@ const DateVote = (() => {
       .eq('id', currentRoomId);
 
     if (error) {
-      console.error('확정 실패:', error);
       showToast('앗, 문제가 생겼어요. 다시 시도해주세요');
       return;
     }
 
-    const label = formatDateLabel(selectedFinalDate);
-    const msg = `📅 모임 날짜 확정!\n\n✅ ${label}\n\n이제 모일 장소를 정해볼까요?\n👉 ${location.origin}${location.pathname}`;
-    copyToClipboard(msg).then(() => {
-      showToast('확정 메시지가 복사됐어요!');
-    });
+    await initConfirmedScreen(selectedFinalDate);
+    go('s-date-confirmed');
+  }
 
-    // 장소 찾기로 연결
-    setTimeout(() => go('s-type'), 1500);
+  // ── 날짜 확정 브릿지 화면 ──
+  async function initConfirmedScreen(dateStr) {
+    const label = formatDateLabel(dateStr);
+    const el = document.getElementById('date-confirmed-label');
+    if (el) el.textContent = label;
+
+    // 참여자 출발지 수집
+    const { data: votes } = await sb
+      .from('participants')
+      .select('name, departure')
+      .eq('room_id', currentRoomId);
+
+    const departures = (votes || []).filter(v => v.departure).map(v => ({
+      name: v.name,
+      departure: v.departure
+    }));
+
+    const depList = document.getElementById('date-confirmed-departures');
+    if (depList) {
+      if (departures.length > 0) {
+        depList.style.display = 'block';
+        depList.querySelector('.dep-list').innerHTML = departures.map(v =>
+          `<div class="dep-item"><span class="dep-name">${v.name}</span><span class="dep-addr">${v.departure}</span></div>`
+        ).join('');
+      } else {
+        depList.style.display = 'none';
+      }
+    }
+
+    // localStorage에 출발지 저장 (장소 찾기에서 활용)
+    localStorage.setItem('moim-departures', JSON.stringify(departures));
+  }
+
+  function goToPlace() {
+    go('s-type');
+    // TODO: 출발지 자동 세팅 — localStorage의 moim-departures 활용
   }
 
   async function goResult() {
-    await renderResultScreen();
+    await renderResultScreen(currentRoomId);
     go('s-date-result');
   }
 
@@ -508,9 +636,59 @@ const DateVote = (() => {
       currentRoomId = roomId;
       initVoteScreen(roomId);
       go('s-date-vote');
+      history.replaceState(null, '', location.pathname);
+      return true;
+    }
+    if (hash.startsWith('#host=')) {
+      const roomId = hash.replace('#host=', '');
+      currentRoomId = roomId;
+      localStorage.setItem('moim-host-room', roomId);
+      renderResultScreen(roomId).then(() => go('s-date-result'));
+      history.replaceState(null, '', location.pathname);
       return true;
     }
     return false;
+  }
+
+  // ── 홈 화면 배너 ──
+  async function checkHomeBanner() {
+    const roomId = localStorage.getItem('moim-host-room');
+    const banner = document.getElementById('date-home-banner');
+    if (!banner) return;
+
+    if (!roomId || !sb) {
+      banner.style.display = 'none';
+      return;
+    }
+
+    const { data: room } = await sb
+      .from('rooms')
+      .select('host_name, dates, status, expected_count')
+      .eq('id', roomId)
+      .single();
+
+    if (!room) {
+      banner.style.display = 'none';
+      return;
+    }
+
+    const { data: votes } = await sb
+      .from('participants')
+      .select('id')
+      .eq('room_id', roomId);
+
+    const voteCount = votes?.length || 0;
+    const countText = room.expected_count ? `${voteCount}/${room.expected_count}명` : `${voteCount}명`;
+    const statusText = (room.status === 'confirmed' || room.status === 'closed') ? '마감' : '진행 중';
+
+    banner.style.display = 'block';
+    banner.querySelector('.banner-status').textContent = statusText === '마감' ? '✅ 마감됨' : '📊 투표 진행 중';
+    banner.querySelector('.banner-count').textContent = `${countText} 응답`;
+    banner.querySelector('.banner-dates').textContent = room.dates.map(d => formatDateLabel(d)).join(' · ');
+    banner.onclick = () => {
+      currentRoomId = roomId;
+      renderResultScreen(roomId).then(() => go('s-date-result'));
+    };
   }
 
   // ── 유틸리티 ──
@@ -539,25 +717,29 @@ const DateVote = (() => {
   // 초기화
   document.addEventListener('DOMContentLoaded', () => {
     initNameScreen();
+    checkHomeBanner();
     checkHash();
   });
 
   return {
     toggleDate, calMove, toggleVote, selectResult,
-    nameNext, pickNext, copyLink, copyMsg,
-    voteSubmit, goResult, confirm, checkHash,
-    voteCalMove, toggleVoteCal
+    nameNext, pickNext, copyLink, copyHostLink, copyMsg,
+    voteSubmit, goResult, confirm, closeVoting, checkHash,
+    voteCalMove, toggleVoteCal, goToPlace
   };
 })();
 
-// 글로벌 함수 바인딩 (HTML onclick에서 호출)
+// 글로벌 함수 바인딩
 function dateNameNext() { DateVote.nameNext(); }
 function datePickNext() { DateVote.pickNext(); }
 function dateCalMove(dir) { DateVote.calMove(dir); }
 function dateCopyLink() { DateVote.copyLink(); }
+function dateCopyHostLink() { DateVote.copyHostLink(); }
 function dateCopyMsg() { DateVote.copyMsg(); }
 function dateVoteSubmit() { DateVote.voteSubmit(); }
 function dateGoResult() { DateVote.goResult(); }
 function dateConfirm() { DateVote.confirm(); }
+function dateCloseVoting() { DateVote.closeVoting(); }
 function dateVoteCalMove(dir) { DateVote.voteCalMove(dir); }
 function dateToggleVoteCal(d) { DateVote.toggleVoteCal(d); }
+function dateGoToPlace() { DateVote.goToPlace(); }
