@@ -429,6 +429,32 @@ body {
    DATE VOTE 날짜 투표 스타일
    ══════════════════════════════════════ */
 
+/* 날짜 투표 화면 공통 레이아웃 */
+.screen-inner {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 60px 24px 40px;
+  text-align: center;
+  position: relative;
+}
+.screen-inner .back-btn {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+}
+.screen-inner .page-title {
+  margin-top: 16px;
+}
+.screen-inner .page-sub {
+  margin-bottom: 8px;
+}
+.screen-inner .btn-primary {
+  margin-top: 32px;
+}
+
 /* 공통 버튼 */
 .btn-primary { width: 100%; max-width: 360px; margin: 24px auto 0; display: block; padding: 16px 24px; border: none; border-radius: 50px; font-size: 16px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all .15s; }
 .btn-grad { background: var(--grad); color: #fff; box-shadow: 0 6px 24px rgba(168,120,216,0.38); }
@@ -532,10 +558,16 @@ body {
   flex-direction: column;
   min-height: 100vh;
   min-height: 100dvh;
-  padding-top: 0 !important;
+  padding: 60px 24px 40px;
+  position: relative;
+}
+.date-result-inner .back-btn {
+  position: absolute;
+  top: 16px;
+  left: 16px;
 }
 .date-result-header {
-  padding-top: 60px;
+  padding-top: 16px;
   text-align: center;
   margin-bottom: 8px;
 }
@@ -554,3 +586,15 @@ body {
   align-items: center;
   gap: 12px;
 }
+
+/* 투표 화면 달력 (제안용) */
+.date-vote-suggest { max-width: 360px; margin: 28px auto 0; }
+.date-vote-suggest-label {
+  font-size: 12px; font-weight: 600; color: var(--text3);
+  text-align: center; margin-bottom: 12px;
+}
+.date-cal--vote { opacity: .95; }
+.date-cal-day.host-pick { background: var(--accent-dim2); color: var(--accent); font-weight: 700; }
+.date-cal-day.host-pick.selected { background: var(--grad); color: #fff; }
+.date-cal-day.suggested { border: 2px dashed var(--accent); color: var(--accent); font-weight: 600; }
+.date-cal-day.suggested.selected { background: var(--grad); color: #fff; border-color: transparent; }

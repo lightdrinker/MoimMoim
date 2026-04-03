@@ -20,6 +20,9 @@ const DateVote = (() => {
   let calYear, calMonth;
   let currentRoomId = null;
   let realtimeSub = null;
+  let voteCalYear, voteCalMonth;
+  let roomDates = []; // 호스트가 지정한 날짜
+  let suggestedDates = []; // 참여자가 제안한 날짜
   const MAX_DATES = 5;
 
   // ── Step 1: 이름 입력 ──
@@ -159,7 +162,7 @@ const DateVote = (() => {
     document.getElementById('date-share-link').textContent = url;
 
     const dateLabels = selectedDates.map(d => formatDateLabel(d)).join(', ');
-    const msg = `📅 모임 날짜 골라주세요!\n\n후보: ${dateLabels}\n\n가능한 날짜에 탭만 하면 돼요 (30초!)\n👉 ${url}`;
+    const msg = `📅 모임 날짜 골라주세요!\n\n후보: ${dateLabels}\n\n가능한 날짜에 탭만 하면 돼요 (딱 30초!)\n👉 ${url}`;
     document.getElementById('date-share-msg').textContent = msg;
   }
 
@@ -211,10 +214,13 @@ const DateVote = (() => {
       return;
     }
 
+    roomDates = room.dates || [];
+    suggestedDates = [];
+
     document.getElementById('date-vote-title').textContent = `${room.host_name}님이 날짜를 골라달래요 😊`;
 
     const wrap = document.getElementById('date-vote-chips');
-    wrap.innerHTML = room.dates.map(d => {
+    wrap.innerHTML = roomDates.map(d => {
       const label = formatDateLabel(d);
       return `<button class="date-vote-chip" data-date="${d}" onclick="DateVote.toggleVote(this)">${label}</button>`;
     }).join('');
@@ -228,11 +234,106 @@ const DateVote = (() => {
     const newInput = input.cloneNode(true);
     input.parentNode.replaceChild(newInput, input);
     newInput.addEventListener('input', checkVoteReady);
+
+    // 투표 달력 초기화
+    initVoteCalendar();
+  }
+
+  // ── 투표 달력 (제안용) ──
+  function initVoteCalendar() {
+    const now = new Date();
+    voteCalYear = now.getFullYear();
+    voteCalMonth = now.getMonth();
+    renderVoteCalendar();
+  }
+
+  function renderVoteCalendar() {
+    const title = document.getElementById('date-vote-cal-title');
+    const grid = document.getElementById('date-vote-cal-grid');
+    if (!title || !grid) return;
+
+    title.textContent = `${voteCalYear}년 ${voteCalMonth + 1}월`;
+
+    const firstDay = new Date(voteCalYear, voteCalMonth, 1);
+    let startDay = firstDay.getDay();
+    startDay = startDay === 0 ? 6 : startDay - 1;
+
+    const daysInMonth = new Date(voteCalYear, voteCalMonth + 1, 0).getDate();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // 현재 칩에서 투표된 날짜들
+    const votedDates = [...document.querySelectorAll('.date-vote-chip.voted')].map(el => el.dataset.date);
+
+    let html = '';
+    for (let i = 0; i < startDay; i++) {
+      html += '<div class="date-cal-day empty"></div>';
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(voteCalYear, voteCalMonth, d);
+      const dateStr = formatDate(date);
+      const isPast = date < today;
+      const isHostPick = roomDates.includes(dateStr);
+      const isSuggested = suggestedDates.includes(dateStr);
+      const isVoted = votedDates.includes(dateStr) || isSuggested;
+
+      let cls = 'date-cal-day';
+      if (isPast) cls += ' past';
+      if (date.getTime() === today.getTime()) cls += ' today';
+      if (isHostPick) cls += ' host-pick';
+      if (isSuggested) cls += ' suggested';
+      if (isVoted || (isHostPick && votedDates.includes(dateStr))) cls += ' selected';
+
+      html += `<button class="${cls}" onclick="DateVote.toggleVoteCal('${dateStr}')" ${isPast ? 'disabled' : ''}>${d}</button>`;
+    }
+
+    grid.innerHTML = html;
+  }
+
+  function toggleVoteCal(dateStr) {
+    const isHostDate = roomDates.includes(dateStr);
+
+    if (isHostDate) {
+      // 호스트 날짜 → 칩 토글
+      const chip = document.querySelector(`.date-vote-chip[data-date="${dateStr}"]`);
+      if (chip) toggleVote(chip);
+    } else {
+      // 새 날짜 제안
+      const idx = suggestedDates.indexOf(dateStr);
+      if (idx >= 0) {
+        suggestedDates.splice(idx, 1);
+        // 칩 제거
+        const chip = document.querySelector(`.date-vote-chip[data-date="${dateStr}"]`);
+        if (chip) chip.remove();
+      } else {
+        suggestedDates.push(dateStr);
+        // 칩 추가
+        const wrap = document.getElementById('date-vote-chips');
+        const label = formatDateLabel(dateStr);
+        const btn = document.createElement('button');
+        btn.className = 'date-vote-chip voted';
+        btn.dataset.date = dateStr;
+        btn.textContent = `${label} ✨`;
+        btn.onclick = function() { DateVote.toggleVote(this); };
+        wrap.appendChild(btn);
+      }
+    }
+    renderVoteCalendar();
+    checkVoteReady();
+  }
+
+  function voteCalMove(dir) {
+    voteCalMonth += dir;
+    if (voteCalMonth > 11) { voteCalMonth = 0; voteCalYear++; }
+    if (voteCalMonth < 0) { voteCalMonth = 11; voteCalYear--; }
+    renderVoteCalendar();
   }
 
   function toggleVote(el) {
     el.classList.toggle('voted');
     checkVoteReady();
+    renderVoteCalendar();
   }
 
   function checkVoteReady() {
@@ -444,7 +545,8 @@ const DateVote = (() => {
   return {
     toggleDate, calMove, toggleVote, selectResult,
     nameNext, pickNext, copyLink, copyMsg,
-    voteSubmit, goResult, confirm, checkHash
+    voteSubmit, goResult, confirm, checkHash,
+    voteCalMove, toggleVoteCal
   };
 })();
 
@@ -457,3 +559,5 @@ function dateCopyMsg() { DateVote.copyMsg(); }
 function dateVoteSubmit() { DateVote.voteSubmit(); }
 function dateGoResult() { DateVote.goResult(); }
 function dateConfirm() { DateVote.confirm(); }
+function dateVoteCalMove(dir) { DateVote.voteCalMove(dir); }
+function dateToggleVoteCal(d) { DateVote.toggleVoteCal(d); }
