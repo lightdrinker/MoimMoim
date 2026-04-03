@@ -1,0 +1,459 @@
+/* ══════════════════════════════════════
+   DATE VOTE — 날짜 투표 기능
+   Supabase Realtime 연동 버전
+   ══════════════════════════════════════ */
+
+const SUPABASE_URL = 'https://rjohcfdmnywqutradryt.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_Yy3bIVFJJ58NjFPP0b_b5Q_O4MnL7zw';
+
+// UMD 빌드: window.supabase 자체가 모듈 객체
+const _sb = window.supabase;
+const sb = (_sb && _sb.createClient)
+  ? _sb.createClient(SUPABASE_URL, SUPABASE_KEY)
+  : null;
+
+if (!sb) console.warn('Supabase 로딩 실패 — localStorage 모드로 동작합니다');
+
+const DateVote = (() => {
+  let hostName = '';
+  let selectedDates = [];
+  let calYear, calMonth;
+  let currentRoomId = null;
+  let realtimeSub = null;
+  const MAX_DATES = 5;
+
+  // ── Step 1: 이름 입력 ──
+  function initNameScreen() {
+    const input = document.getElementById('date-host-name');
+    const btn = document.getElementById('date-name-next');
+    input.value = '';
+    btn.disabled = true;
+    input.addEventListener('input', () => {
+      btn.disabled = input.value.trim().length === 0;
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && input.value.trim()) dateNameNext();
+    });
+  }
+
+  function nameNext() {
+    const input = document.getElementById('date-host-name');
+    hostName = input.value.trim();
+    if (!hostName) return;
+    selectedDates = [];
+    initCalendar();
+    go('s-date-pick');
+  }
+
+  // ── Step 2: 달력 날짜 선택 ──
+  function initCalendar() {
+    const now = new Date();
+    calYear = now.getFullYear();
+    calMonth = now.getMonth();
+    renderCalendar();
+  }
+
+  function renderCalendar() {
+    const title = document.getElementById('date-cal-title');
+    const grid = document.getElementById('date-cal-grid');
+    title.textContent = `${calYear}년 ${calMonth + 1}월`;
+
+    const firstDay = new Date(calYear, calMonth, 1);
+    let startDay = firstDay.getDay();
+    startDay = startDay === 0 ? 6 : startDay - 1;
+
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let html = '';
+    for (let i = 0; i < startDay; i++) {
+      html += '<div class="date-cal-day empty"></div>';
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(calYear, calMonth, d);
+      const dateStr = formatDate(date);
+      const isPast = date < today;
+      const isToday = date.getTime() === today.getTime();
+      const isSelected = selectedDates.includes(dateStr);
+      const isMaxed = !isSelected && selectedDates.length >= MAX_DATES;
+
+      let cls = 'date-cal-day';
+      if (isPast) cls += ' past';
+      if (isToday) cls += ' today';
+      if (isSelected) cls += ' selected';
+      if (isMaxed) cls += ' maxed';
+
+      html += `<button class="${cls}" onclick="DateVote.toggleDate('${dateStr}')" ${isPast ? 'disabled' : ''}>${d}</button>`;
+    }
+
+    grid.innerHTML = html;
+    renderSelectedChips();
+    updatePickButton();
+  }
+
+  function toggleDate(dateStr) {
+    const idx = selectedDates.indexOf(dateStr);
+    if (idx >= 0) {
+      selectedDates.splice(idx, 1);
+    } else if (selectedDates.length < MAX_DATES) {
+      selectedDates.push(dateStr);
+      selectedDates.sort();
+    }
+    renderCalendar();
+  }
+
+  function calMove(dir) {
+    calMonth += dir;
+    if (calMonth > 11) { calMonth = 0; calYear++; }
+    if (calMonth < 0) { calMonth = 11; calYear--; }
+    renderCalendar();
+  }
+
+  function renderSelectedChips() {
+    const wrap = document.getElementById('date-selected-chips');
+    wrap.innerHTML = selectedDates.map(d => {
+      const label = formatDateLabel(d);
+      return `<span class="date-chip" onclick="DateVote.toggleDate('${d}')">${label} <span class="x">✕</span></span>`;
+    }).join('');
+  }
+
+  function updatePickButton() {
+    const btn = document.getElementById('date-pick-next');
+    const count = document.getElementById('date-pick-count');
+    count.textContent = selectedDates.length;
+    btn.disabled = selectedDates.length === 0;
+  }
+
+  async function pickNext() {
+    if (selectedDates.length === 0) return;
+    await createRoom();
+    renderShareScreen();
+    go('s-date-share');
+  }
+
+  // ── Supabase: Room 생성 ──
+  async function createRoom() {
+    const { data, error } = await sb
+      .from('rooms')
+      .insert({ host_name: hostName, dates: selectedDates, status: 'voting' })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Room 생성 실패:', error);
+      showToast('앗, 문제가 생겼어요. 다시 시도해주세요');
+      return;
+    }
+
+    currentRoomId = data.id;
+    // 호스트용 로컬 저장 (내 room임을 기억)
+    localStorage.setItem('moim-host-room', currentRoomId);
+  }
+
+  // ── Step 3: 링크 공유 ──
+  function renderShareScreen() {
+    const url = `${location.origin}${location.pathname}#vote=${currentRoomId}`;
+
+    document.getElementById('date-share-link').textContent = url;
+
+    const dateLabels = selectedDates.map(d => formatDateLabel(d)).join(', ');
+    const msg = `📅 모임 날짜 골라주세요!\n\n후보: ${dateLabels}\n\n가능한 날짜에 탭만 하면 돼요 (30초!)\n👉 ${url}`;
+    document.getElementById('date-share-msg').textContent = msg;
+  }
+
+  function copyLink() {
+    const link = document.getElementById('date-share-link').textContent;
+    copyToClipboard(link).then(() => showToast('링크가 복사됐어요!'));
+  }
+
+  function copyMsg() {
+    const msg = document.getElementById('date-share-msg').textContent;
+    copyToClipboard(msg).then(() => showToast('메시지가 복사됐어요!'));
+  }
+
+  // clipboard fallback (HTTP localhost 대응)
+  function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    return Promise.resolve();
+  }
+
+  // ── Step 4: 참여자 투표 ──
+  async function initVoteScreen(roomId) {
+    currentRoomId = roomId;
+
+    // Supabase에서 room 정보 가져오기
+    const { data: room, error } = await sb
+      .from('rooms')
+      .select('*')
+      .eq('id', roomId)
+      .single();
+
+    if (error || !room) {
+      showToast('앗, 투표 링크가 유효하지 않아요');
+      go('s-home');
+      return;
+    }
+
+    if (room.status === 'confirmed') {
+      showToast('이미 날짜가 확정된 모임이에요');
+      go('s-home');
+      return;
+    }
+
+    document.getElementById('date-vote-title').textContent = `${room.host_name}님이 날짜를 골라달래요 😊`;
+
+    const wrap = document.getElementById('date-vote-chips');
+    wrap.innerHTML = room.dates.map(d => {
+      const label = formatDateLabel(d);
+      return `<button class="date-vote-chip" data-date="${d}" onclick="DateVote.toggleVote(this)">${label}</button>`;
+    }).join('');
+
+    const input = document.getElementById('date-voter-name');
+    const btn = document.getElementById('date-vote-submit');
+    input.value = '';
+    btn.disabled = true;
+
+    // 기존 리스너 중복 방지
+    const newInput = input.cloneNode(true);
+    input.parentNode.replaceChild(newInput, input);
+    newInput.addEventListener('input', checkVoteReady);
+  }
+
+  function toggleVote(el) {
+    el.classList.toggle('voted');
+    checkVoteReady();
+  }
+
+  function checkVoteReady() {
+    const name = document.getElementById('date-voter-name').value.trim();
+    const voted = document.querySelectorAll('.date-vote-chip.voted').length;
+    document.getElementById('date-vote-submit').disabled = !name || voted === 0;
+  }
+
+  async function voteSubmit() {
+    const name = document.getElementById('date-voter-name').value.trim();
+    const votedDates = [...document.querySelectorAll('.date-vote-chip.voted')].map(el => el.dataset.date);
+    if (!name || votedDates.length === 0 || !currentRoomId) return;
+
+    // 같은 이름 기존 투표 삭제 후 재투표
+    await sb
+      .from('participants')
+      .delete()
+      .eq('room_id', currentRoomId)
+      .eq('name', name);
+
+    const { error } = await sb
+      .from('participants')
+      .insert({
+        room_id: currentRoomId,
+        name: name,
+        available_dates: votedDates
+      });
+
+    if (error) {
+      console.error('투표 실패:', error);
+      showToast('앗, 문제가 생겼어요. 다시 시도해주세요');
+      return;
+    }
+
+    await renderResultScreen();
+    go('s-date-result');
+    showToast('투표 완료! 😊');
+  }
+
+  // ── Step 5: 집계 결과 ──
+  async function renderResultScreen() {
+    if (!currentRoomId) return;
+
+    const { data: room } = await sb
+      .from('rooms')
+      .select('*')
+      .eq('id', currentRoomId)
+      .single();
+
+    if (!room) return;
+
+    const { data: votes } = await sb
+      .from('participants')
+      .select('*')
+      .eq('room_id', currentRoomId);
+
+    const sub = document.getElementById('date-result-sub');
+    const list = document.getElementById('date-result-list');
+    const confirmBtn = document.getElementById('date-confirm-btn');
+
+    if (!votes || votes.length === 0) {
+      sub.textContent = '아직 아무도 응답하지 않았어요';
+      list.innerHTML = '';
+      confirmBtn.style.display = 'none';
+      return;
+    }
+
+    sub.textContent = `${votes.length}명이 응답했어요`;
+
+    // 날짜별 집계
+    const counts = {};
+    room.dates.forEach(d => counts[d] = { count: 0, names: [] });
+    votes.forEach(v => {
+      (v.available_dates || []).forEach(d => {
+        if (counts[d]) {
+          counts[d].count++;
+          counts[d].names.push(v.name);
+        }
+      });
+    });
+
+    const maxCount = Math.max(...Object.values(counts).map(c => c.count));
+
+    list.innerHTML = room.dates.map(d => {
+      const c = counts[d];
+      const isBest = c.count === maxCount && c.count > 0;
+      return `<div class="date-result-item${isBest ? ' best' : ''}" onclick="DateVote.selectResult('${d}')">
+        <div>
+          <div class="date-result-date">${formatDateLabel(d)}</div>
+          <div class="date-result-names">${c.names.join(', ') || '-'}</div>
+        </div>
+        <div class="date-result-count">${c.count}명</div>
+      </div>`;
+    }).join('');
+
+    // 호스트만 확정 버튼 보이기
+    const isHost = localStorage.getItem('moim-host-room') === currentRoomId;
+    confirmBtn.style.display = isHost ? 'block' : 'none';
+
+    // 실시간 구독 시작
+    subscribeRealtime();
+  }
+
+  // ── Supabase Realtime 구독 ──
+  function subscribeRealtime() {
+    if (realtimeSub) {
+      sb.removeChannel(realtimeSub);
+    }
+
+    realtimeSub = sb
+      .channel(`room-${currentRoomId}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'participants', filter: `room_id=eq.${currentRoomId}` },
+        () => {
+          // 새 투표가 들어오면 집계 화면 자동 갱신
+          renderResultScreen();
+        }
+      )
+      .subscribe();
+  }
+
+  let selectedFinalDate = null;
+  function selectResult(dateStr) {
+    selectedFinalDate = dateStr;
+    document.querySelectorAll('.date-result-item').forEach(el => el.classList.remove('picked'));
+    const items = document.querySelectorAll('.date-result-item');
+    // room.dates 순서 기준 index 찾기
+    sb.from('rooms').select('dates').eq('id', currentRoomId).single().then(({ data }) => {
+      if (!data) return;
+      const idx = data.dates.indexOf(dateStr);
+      if (idx >= 0 && items[idx]) items[idx].classList.add('picked');
+    });
+  }
+
+  async function confirm() {
+    if (!selectedFinalDate) {
+      showToast('확정할 날짜를 탭해주세요');
+      return;
+    }
+
+    const { error } = await sb
+      .from('rooms')
+      .update({ final_date: selectedFinalDate, status: 'confirmed' })
+      .eq('id', currentRoomId);
+
+    if (error) {
+      console.error('확정 실패:', error);
+      showToast('앗, 문제가 생겼어요. 다시 시도해주세요');
+      return;
+    }
+
+    const label = formatDateLabel(selectedFinalDate);
+    const msg = `📅 모임 날짜 확정!\n\n✅ ${label}\n\n이제 모일 장소를 정해볼까요?\n👉 ${location.origin}${location.pathname}`;
+    copyToClipboard(msg).then(() => {
+      showToast('확정 메시지가 복사됐어요!');
+    });
+
+    // 장소 찾기로 연결
+    setTimeout(() => go('s-type'), 1500);
+  }
+
+  async function goResult() {
+    await renderResultScreen();
+    go('s-date-result');
+  }
+
+  // ── URL hash 라우팅 ──
+  function checkHash() {
+    const hash = location.hash;
+    if (hash.startsWith('#vote=')) {
+      const roomId = hash.replace('#vote=', '');
+      currentRoomId = roomId;
+      initVoteScreen(roomId);
+      go('s-date-vote');
+      return true;
+    }
+    return false;
+  }
+
+  // ── 유틸리티 ──
+  function formatDate(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function formatDateLabel(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    const days = ['일', '월', '화', '수', '목', '금', '토'];
+    return `${m}/${d} (${days[date.getDay()]})`;
+  }
+
+  function showToast(msg) {
+    const t = document.querySelector('.toast');
+    if (!t) return;
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2000);
+  }
+
+  // 초기화
+  document.addEventListener('DOMContentLoaded', () => {
+    initNameScreen();
+    checkHash();
+  });
+
+  return {
+    toggleDate, calMove, toggleVote, selectResult,
+    nameNext, pickNext, copyLink, copyMsg,
+    voteSubmit, goResult, confirm, checkHash
+  };
+})();
+
+// 글로벌 함수 바인딩 (HTML onclick에서 호출)
+function dateNameNext() { DateVote.nameNext(); }
+function datePickNext() { DateVote.pickNext(); }
+function dateCalMove(dir) { DateVote.calMove(dir); }
+function dateCopyLink() { DateVote.copyLink(); }
+function dateCopyMsg() { DateVote.copyMsg(); }
+function dateVoteSubmit() { DateVote.voteSubmit(); }
+function dateGoResult() { DateVote.goResult(); }
+function dateConfirm() { DateVote.confirm(); }
