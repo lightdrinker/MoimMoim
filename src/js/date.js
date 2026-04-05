@@ -234,12 +234,8 @@ const DateVote = (() => {
       hostUrl,
       `──────────────────`,
     ].join('\n');
-    if (navigator.share) {
-      try { await navigator.share({ text: msg }); showToast('공유 완료!'); return; }
-      catch (e) { if (e.name === 'AbortError') return; }
-    }
     await copyToClipboard(msg);
-    showToast('메시지가 복사됐어요!');
+    showToast('메시지가 복사되었습니다!');
   }
 
   // Web Share API or clipboard fallback
@@ -593,16 +589,15 @@ const DateVote = (() => {
         if (confirmBtn) confirmBtn.style.display = 'block';
         if (closeBtn) closeBtn.style.display = 'block';
       }
-      if (gotoBtn) gotoBtn.style.display = 'none';
     } else {
       if (confirmBtn) confirmBtn.style.display = 'none';
       if (closeBtn) closeBtn.style.display = 'none';
-      // 방장 + 확정 상태: 중간지점 찾기 버튼 표시
-      if (gotoBtn) gotoBtn.style.display = isHost && isConfirmed ? 'block' : 'none';
     }
+    // 마감·확정 상태면 누구든 장소 찾기 가능
+    if (gotoBtn) gotoBtn.style.display = (isClosed || isConfirmed) ? 'block' : 'none';
 
-    // 확정 상태에서 방장이 돌아온 경우: 출발지 데이터 로드
-    if (isHost && isConfirmed) {
+    // 마감·확정 상태: 출발지 데이터 로드
+    if (isClosed || isConfirmed) {
       const { data: deps } = await sb.from('participants').select('name, departure').eq('room_id', id);
       const departures = (deps || []).filter(v => v.departure).map(v => ({ name: v.name, departure: v.departure }));
       localStorage.setItem('moim-departures', JSON.stringify(departures));
