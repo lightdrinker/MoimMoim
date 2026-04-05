@@ -30,7 +30,10 @@ const COND = {
 // ── NAV
 function go(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
+  const target = document.getElementById(id);
+  target.classList.add('active');
+  const app = document.querySelector('.app');
+  if (app) app.style.display = app.contains(target) ? '' : 'none';
   window.scrollTo(0, 0);
   if (id === 's-condition') renderCond();
   if (id === 's-locations') initMap();
