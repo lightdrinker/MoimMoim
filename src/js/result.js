@@ -448,3 +448,64 @@ async function shareText() {
     toast('복사 실패. 직접 선택해서 복사해주세요');
   }
 }
+
+async function shareFinalAnnouncement() {
+  const confirmedDate = localStorage.getItem('moim-confirmed-date');
+  const condStr = S.condition.main || (S.condition.selected || []).join('·') || S.type || '';
+
+  const midArea = await new Promise(resolve => {
+    if (!geocoder || !S.rec?.mid) { resolve(''); return; }
+    geocoder.geocode({ location: { lat: S.rec.mid.lat, lng: S.rec.mid.lng }, language: 'ko' }, (res, st) => {
+      if (st === 'OK' && res[0]) {
+        const comps = res[0].address_components;
+        const sub = comps.find(c => c.types.includes('sublocality_level_2') || c.types.includes('sublocality_level_1'));
+        resolve(sub?.long_name || '');
+      } else resolve('');
+    });
+  });
+
+  const rests = S.rec?.restaurants || [];
+  const RANK = ['🥇', '🥈', '🥉'];
+  const top3 = rests.slice(0, 3);
+
+  const dateLine = confirmedDate
+    ? `📅 날짜: ${formatConfirmedDate(confirmedDate)}`
+    : '';
+  const placeLine = midArea
+    ? `📍 장소: ${midArea} 근처${condStr ? ` (${condStr})` : ''}`
+    : '';
+  const restLines = top3.map((r, i) =>
+    `${RANK[i]} ${r.display_name || r.name}  ${buildNaverUrl(r)}`
+  ).join('\n');
+
+  const lines = [
+    `🎉 모임 날짜·장소 확정됐어요!`,
+    ``,
+    ...(dateLine ? [dateLine] : []),
+    ...(placeLine ? [placeLine] : []),
+    ``,
+    `🍽 추천 맛집`,
+    restLines,
+    ``,
+    `──────────────────`,
+    `🧭 MoiM — 모두의 딱 중간 지점`,
+    `https://moim-moim-tau.vercel.app`,
+  ].join('\n');
+
+  if (navigator.share) {
+    try { await navigator.share({ text: lines }); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  try {
+    await navigator.clipboard.writeText(lines);
+    toast('📢 안내 메시지가 복사됐어요! 카톡에 붙여넣기 하세요');
+  } catch {
+    toast('복사 실패. 직접 선택해서 복사해주세요');
+  }
+}
+
+function formatConfirmedDate(dateStr) {
+  const DAY = ['일', '월', '화', '수', '목', '금', '토'];
+  const d = new Date(dateStr + 'T00:00:00');
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 (${DAY[d.getDay()]})`;
+}
