@@ -48,6 +48,21 @@ window._mapCb = function() {
     const lat = e.latLng.lat(), lng = e.latLng.lng();
     revGeocode(lat, lng, label => addPin(lat, lng, label));
   });
+
+  // 날짜 투표에서 넘어온 출발지 pre-fill
+  if (window._moimPendingDeps && window._moimPendingDeps.length > 0) {
+    window._moimPendingDeps.forEach(dep => {
+      if (S.pins.length >= S.count) return;
+      geocoder.geocode({ address: dep.departure }, (results, status) => {
+        if (status === 'OK' && results[0]) {
+          const loc = results[0].geometry.location;
+          const label = dep.name || dep.departure.split(' ').slice(-1)[0];
+          addPin(loc.lat(), loc.lng(), label);
+        }
+      });
+    });
+    window._moimPendingDeps = null;
+  }
 };
 
 function revGeocode(lat, lng, cb) {
