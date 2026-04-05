@@ -255,6 +255,9 @@ body {
   background: var(--grad-dim); border: 1.5px solid rgba(168,120,216,.2);
   border-radius: 20px; padding: 6px 14px; font-size: 12px; color: var(--accent); font-weight: 600;
 }
+.res-area-mid {
+  font-size: 15px; font-weight: 800; color: var(--primary); letter-spacing: -.3px;
+}
 
 .rest-card {
   margin: 0 16px 14px; border-radius: 20px; overflow: hidden;

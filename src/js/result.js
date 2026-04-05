@@ -220,11 +220,11 @@ function renderResult(rests, mid, radiusUsed) {
         areaName = sub?.long_name || '';
       }
       const pinPart = pinNames.join(' & ');
-      const midPart = areaName ? `중간 위치는 ${areaName} 입니다` : '';
+      const midPart = areaName ? `중간 위치는 <span class="res-area-mid">${areaName}</span> 입니다` : '';
       const badge = pinPart && midPart
         ? `📍 ${pinPart}  ▶  ${midPart}`
-        : pinPart ? `📍 ${pinPart} 중간` : areaName ? `📍 ${areaName} 근처` : '📍 —';
-      document.getElementById('res-area').textContent = badge;
+        : pinPart ? `📍 ${pinPart} 중간` : areaName ? `📍 <span class="res-area-mid">${areaName}</span> 근처` : '📍 —';
+      document.getElementById('res-area').innerHTML = badge;
     });
   } else {
     const pinPart = pinNames.join(' & ');

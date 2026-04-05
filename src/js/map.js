@@ -56,7 +56,8 @@ window._mapCb = function() {
       geocoder.geocode({ address: dep.departure }, (results, status) => {
         if (status === 'OK' && results[0]) {
           const loc = results[0].geometry.location;
-          const label = dep.name || dep.departure.split(' ').slice(-1)[0];
+          const placeName = dep.departure;
+          const label = dep.name ? `${placeName} (${dep.name})` : placeName;
           addPin(loc.lat(), loc.lng(), label);
         }
       });
