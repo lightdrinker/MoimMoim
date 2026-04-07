@@ -98,6 +98,7 @@ export default async function handler(req, res) {
         const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(keyword)}&location=${midLat},${midLng}&radius=${radiusM}&language=ko&region=kr&key=${GKEY}`;
         const r = await fetch(url);
         const d = await r.json();
+        console.log('[TextSearch] status:', d.status, 'count:', (d.results||[]).length, 'error:', d.error_message);
         return (d.results || []).filter(p => {
           const loc = p.geometry?.location;
           return loc ? distKm(midLat, midLng, loc.lat, loc.lng) <= radiusM / 1000 : false;
