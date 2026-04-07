@@ -93,25 +93,15 @@ export default async function handler(req, res) {
 
       let radiusUsed = 2.0;
 
-      // ── 1단계: Google Text Search (New) — 관련도순 (인기 맛집 우선)
+      // ── 1단계: Google Text Search — 관련도순 (인기도 반영)
       const doTextSearch = async (radiusM) => {
-        const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Goog-Api-Key': GKEY,
-            'X-Goog-FieldMask': 'places.id,places.displayName,places.rating,places.userRatingCount,places.formattedAddress,places.photos,places.priceLevel,places.types,places.location',
-          },
-          body: JSON.stringify({
-            textQuery: keyword,
-            locationBias: { circle: { center: { latitude: midLat, longitude: midLng }, radius: radiusM } },
-            rankPreference: 'RELEVANCE',
-            maxResultCount: 20,
-            languageCode: 'ko',
-          }),
-        });
+        const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(keyword)}&location=${midLat},${midLng}&radius=${radiusM}&language=ko&region=kr&key=${GKEY}`;
+        const r = await fetch(url);
         const d = await r.json();
-        return d.places || [];
+        return (d.results || []).filter(p => {
+          const loc = p.geometry?.location;
+          return loc ? distKm(midLat, midLng, loc.lat, loc.lng) <= radiusM / 1000 : false;
+        });
       };
 
       let rawPlaces = [];
@@ -123,18 +113,17 @@ export default async function handler(req, res) {
 
       if (!rawPlaces.length) return res.status(200).json({ results: [] });
 
-      // 응답 정규화 (하위 단계와 동일한 필드 구조 유지)
       const enriched = rawPlaces.slice(0, 20).map(p => ({
-        place_id: p.id,
-        name: p.displayName?.text || '',
-        formatted_address: p.formattedAddress || '',
+        place_id: p.place_id,
+        name: p.name || '',
+        formatted_address: p.formatted_address || '',
         rating: p.rating || null,
-        user_ratings_total: p.userRatingCount || 0,
-        photos: (p.photos || []).slice(0, 3).map(ph => ({ photo_reference: ph.name })),
-        price_level: p.priceLevel || null,
+        user_ratings_total: p.user_ratings_total || 0,
+        photos: (p.photos || []).slice(0, 3).map(ph => ({ photo_reference: ph.photo_reference })),
+        price_level: p.price_level || null,
         types: p.types || [],
-        _lat: p.location?.latitude,
-        _lng: p.location?.longitude,
+        _lat: p.geometry?.location?.lat,
+        _lng: p.geometry?.location?.lng,
       }));
 
       // ── 3단계: 블로그 snippet + 네이버 이미지 수집 (장소당 병렬 처리)
@@ -283,15 +272,6 @@ export default async function handler(req, res) {
       const refs = (photo_references || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 2);
       const urls = await Promise.all(refs.map(async ref => {
         try {
-          // New Places API format: "places/xxx/photos/yyy"
-          if (ref.startsWith('places/')) {
-            const r = await fetch(
-              `https://places.googleapis.com/v1/${ref}/media?maxWidthPx=${maxwidth}&key=${GKEY}`,
-              { redirect: 'follow' }
-            );
-            return r.url || null;
-          }
-          // Legacy format
           const r = await fetch(
             `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxwidth}&photo_reference=${ref}&key=${GKEY}`,
             { redirect: 'follow' }
