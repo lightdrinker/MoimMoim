@@ -211,6 +211,21 @@ function renderResult(rests, mid, radiusUsed) {
     return m ? m[1] : lbl.split(' ')[0];
   }).filter(Boolean);
 
+  function renderAreaBadge(names, areaName) {
+    const chips = names.map((n, i) => {
+      const isOddLast = names.length % 2 !== 0 && i === names.length - 1;
+      return `<div class="rba-chip${isOddLast ? ' full' : ''}">${n}</div>`;
+    }).join('');
+    const midLine = areaName
+      ? `<hr class="rba-divider"><span class="rba-mid">📍 ${areaName}</span>`
+      : '';
+    document.getElementById('res-area').innerHTML = `
+      <p class="rba-label">출발지들의 딱 중간</p>
+      <div class="rba-grid">${chips}</div>
+      ${midLine}
+    `;
+  }
+
   if (geocoder) {
     geocoder.geocode({ location: { lat: mid.lat, lng: mid.lng }, language: 'ko' }, (res, st) => {
       let areaName = '';
@@ -219,22 +234,16 @@ function renderResult(rests, mid, radiusUsed) {
         const sub = comps.find(c => c.types.includes('sublocality_level_2') || c.types.includes('sublocality_level_1'));
         areaName = sub?.long_name || '';
       }
-      const pinPart = pinNames.join(' & ');
-      const midPart = areaName ? `중간 위치는 <span class="res-area-mid">${areaName}</span> 입니다` : '';
-      const badge = pinPart && midPart
-        ? `📍 ${pinPart}  ▶  ${midPart}`
-        : pinPart ? `📍 ${pinPart} 중간` : areaName ? `📍 <span class="res-area-mid">${areaName}</span> 근처` : '📍 —';
-      document.getElementById('res-area').innerHTML = badge;
+      renderAreaBadge(pinNames, areaName);
     });
   } else {
-    const pinPart = pinNames.join(' & ');
-    document.getElementById('res-area').textContent = pinPart ? `📍 ${pinPart} 중간` : '📍 —';
+    renderAreaBadge(pinNames, '');
   }
 
   const condLabel = S.condition.main || (S.condition.selected || []).join('·') || S.type;
   const radiusLabel = `${radiusUsed}`;
   document.getElementById('res-subtitle') && (
-    document.getElementById('res-subtitle').textContent = `${radiusLabel}km 이내의 ${condLabel} 추천`
+    document.getElementById('res-subtitle').textContent = `[ ${radiusLabel}km 이내의 ${condLabel} 추천 ]`
   );
 
   // 페이지 기반 슬라이싱
