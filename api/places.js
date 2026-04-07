@@ -91,132 +91,51 @@ export default async function handler(req, res) {
         return dongM?.[1] || guM?.[1] || '';
       };
 
-      let finalResults = [];
       let radiusUsed = 2.0;
 
-      // 네이버 카테고리 필터: 음식점/카페가 아닌 업종 제거
-      const NAVER_ALLOWED_CAT = ['음식점', '카페', '베이커리'];
-      const NAVER_BLOCKED_CAT = ['쇼핑', '서비스업', '여행', '숙박', '교육', '의료', '금융', '공공기관', '스포츠', '문화'];
-      const isNaverFoodPlace = (item) => {
-        const cat = item.category || '';
-        if (!cat) return true; // 카테고리 없으면 통과 (Google로 검증)
-        if (NAVER_BLOCKED_CAT.some(b => cat.includes(b))) return false;
-        return true; // 음식점 카테고리 없어도 차단 카테고리 아니면 통과
+      // ── 1단계: Google Text Search (New) — 관련도순 (인기 맛집 우선)
+      const doTextSearch = async (radiusM) => {
+        const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': GKEY,
+            'X-Goog-FieldMask': 'places.id,places.displayName,places.rating,places.userRatingCount,places.formattedAddress,places.photos,places.priceLevel,places.types,places.location',
+          },
+          body: JSON.stringify({
+            textQuery: keyword,
+            locationBias: { circle: { center: { latitude: midLat, longitude: midLng }, radius: radiusM } },
+            rankPreference: 'RELEVANCE',
+            maxResultCount: 20,
+            languageCode: 'ko',
+          }),
+        });
+        const d = await r.json();
+        return d.places || [];
       };
 
-      // ── 1단계: 네이버 로컬 검색
-      if (NAVER_ID && NAVER_SECRET) {
-        const regionPrefix = district || '서울';
-        const naverQuery = `${regionPrefix} ${keyword}`;
-        const naverUrl = `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(naverQuery)}&display=40&sort=sim`;
-        try {
-          const naverRes = await fetch(naverUrl, {
-            headers: {
-              'X-Naver-Client-Id': NAVER_ID,
-              'X-Naver-Client-Secret': NAVER_SECRET,
-            },
-          });
-          const naverData = await naverRes.json();
-          const naverItems = (naverData.items || []).filter(isNaverFoodPlace);
-          const withCoords = naverItems.map(item => ({
-            ...item,
-            _lat: parseInt(item.mapy) * 1e-7,
-            _lng: parseInt(item.mapx) * 1e-7,
-          }));
-          let nearby = [];
-          for (const radius of [2.0, 3.5, 5.0]) {
-            nearby = withCoords.filter(item =>
-              distKm(midLat, midLng, item._lat, item._lng) <= radius
-            );
-            radiusUsed = radius;
-            if (nearby.length >= 3) break;
-          }
-          finalResults = nearby;
-        } catch { /* 네이버 실패 시 Google fallback */ }
+      let rawPlaces = [];
+      for (const radiusM of [2000, 3500, 5000]) {
+        rawPlaces = await doTextSearch(radiusM);
+        radiusUsed = radiusM / 1000;
+        if (rawPlaces.length >= 3) break;
       }
 
-      // ── 2단계: Google Text Search로 사진/평점 보완
-      const fields = 'name,rating,user_ratings_total,formatted_address,photos,price_level,opening_hours,place_id,types';
-      const enriched = await Promise.all(finalResults.slice(0, 10).map(async item => {
-        const placeName = item.title
-          ? item.title.replace(/<[^>]+>/g, '')
-          : (item.name || '');
-        const placeAddr = item.roadAddress || item.address || '';
+      if (!rawPlaces.length) return res.status(200).json({ results: [] });
 
-        try {
-          const addrShort = (() => {
-            const guM = placeAddr.match(/([가-힣]+[구군])/);
-            const dongM = placeAddr.match(/[가-힣]+[구군]\s*([가-힣0-9]+(?:동|가|읍|면|리))\b/);
-            return [guM?.[1], dongM?.[1]].filter(Boolean).join(' ');
-          })();
-
-          const q = addrShort ? `${placeName} ${addrShort}` : placeName;
-          const tsUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(q)}&language=ko&key=${GKEY}`;
-          const tsRes = await fetch(tsUrl);
-          const tsData = await tsRes.json();
-          const candidates = (tsData.results || []).slice(0, 3);
-
-          const normalize = s => s.replace(/\s/g, '').toLowerCase();
-          const nName = normalize(placeName);
-
-          const gResult = candidates.find(c => {
-            if (!c.place_id) return false;
-            const gLat = c.geometry?.location?.lat;
-            const gLng = c.geometry?.location?.lng;
-            if (!gLat || !gLng) return false;
-            if (distKm(item._lat, item._lng, gLat, gLng) > 5.0) return false;
-            const gName = normalize(c.name || '');
-            if (nName === gName) return true;
-            // 짧은 이름(3자 이하)은 정확히 일치해야만 매칭
-            if (nName.length <= 3 || gName.length <= 3) return nName === gName;
-            // 4자 이상: 최소 4자 prefix가 서로 포함되어야 매칭
-            const matchLen = Math.min(4, Math.min(nName.length, gName.length));
-            return gName.includes(nName.slice(0, matchLen)) || nName.includes(gName.slice(0, matchLen));
-          }) || null;
-
-          if (gResult?.place_id) {
-            const dr = await fetch(`https://maps.googleapis.com/maps/api/place/details/json?place_id=${gResult.place_id}&fields=${fields}&language=ko&key=${GKEY}`);
-            const dd = await dr.json();
-            const detail = dd.result || gResult;
-            return {
-              ...detail,
-              name: placeName,
-              formatted_address: placeAddr || detail.formatted_address || '',
-            };
-          }
-        } catch { /* Google 실패 시 네이버 데이터만 사용 */ }
-
-        return {
-          name: placeName,
-          formatted_address: placeAddr,
-          rating: null,
-          user_ratings_total: 0,
-          photos: [],
-          place_id: null,
-        };
+      // 응답 정규화 (하위 단계와 동일한 필드 구조 유지)
+      const enriched = rawPlaces.slice(0, 20).map(p => ({
+        place_id: p.id,
+        name: p.displayName?.text || '',
+        formatted_address: p.formattedAddress || '',
+        rating: p.rating || null,
+        user_ratings_total: p.userRatingCount || 0,
+        photos: (p.photos || []).slice(0, 3).map(ph => ({ photo_reference: ph.name })),
+        price_level: p.priceLevel || null,
+        types: p.types || [],
+        _lat: p.location?.latitude,
+        _lng: p.location?.longitude,
       }));
-
-      // Google fallback: 네이버 결과가 없을 경우
-      if (!enriched.length) {
-        const textUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent((district || '') + ' ' + keyword)}&location=${lat},${lng}&radius=2000&language=ko&region=kr&key=${GKEY}`;
-        const textRes = await fetch(textUrl);
-        const textData = await textRes.json();
-        const gResults = (textData.results || []).filter(r => {
-          const rl = r.geometry?.location;
-          return rl ? distKm(midLat, midLng, rl.lat, rl.lng) <= 2.0 : false;
-        });
-        if (!gResults.length) return res.status(200).json({ results: [] });
-        const fallbackDetails = await Promise.all(gResults.slice(0, 10).map(async r => {
-          try {
-            const dr = await fetch(`https://maps.googleapis.com/maps/api/place/details/json?place_id=${r.place_id}&fields=${fields}&language=ko&key=${GKEY}`);
-            const dd = await dr.json();
-            return dd.result || r;
-          } catch { return r; }
-        }));
-        enriched.push(...fallbackDetails);
-      }
-
-      if (!enriched.length) return res.status(200).json({ results: [] });
 
       // ── 3단계: 블로그 snippet + 네이버 이미지 수집 (장소당 병렬 처리)
       if (NAVER_ID && NAVER_SECRET) {
@@ -351,10 +270,9 @@ export default async function handler(req, res) {
       };
       const enrichedFiltered = enriched.filter(isGoogleFoodPlace);
 
-      // 1순위: Google 매칭 성공 + 평점 3.5↑
-      const tier1 = enrichedFiltered.filter(r => r.place_id && r.rating >= 3.5);
-      // 2순위: 나머지
-      const tier2 = enrichedFiltered.filter(r => !r.place_id || !r.rating);
+      // 평점 3.5↑ 우선, 나머지 후순위 (Google 결과라 전체 place_id 있음)
+      const tier1 = enrichedFiltered.filter(r => r.rating >= 3.5);
+      const tier2 = enrichedFiltered.filter(r => !r.rating || r.rating < 3.5);
       const finalFiltered = [...tier1, ...tier2].slice(0, 10);
 
       return res.status(200).json({ results: finalFiltered, radiusUsed });
@@ -365,6 +283,15 @@ export default async function handler(req, res) {
       const refs = (photo_references || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 2);
       const urls = await Promise.all(refs.map(async ref => {
         try {
+          // New Places API format: "places/xxx/photos/yyy"
+          if (ref.startsWith('places/')) {
+            const r = await fetch(
+              `https://places.googleapis.com/v1/${ref}/media?maxWidthPx=${maxwidth}&key=${GKEY}`,
+              { redirect: 'follow' }
+            );
+            return r.url || null;
+          }
+          // Legacy format
           const r = await fetch(
             `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxwidth}&photo_reference=${ref}&key=${GKEY}`,
             { redirect: 'follow' }
