@@ -27,8 +27,9 @@ async function getRecommend() {
     ];
 
     const radiusUsed = nd.radiusUsed || 2.0;
-    S.rec = { restaurants: photosFirst, mid, radiusUsed };
-    renderResult(photosFirst, mid, radiusUsed);
+    const snappedStation = nd.snappedStation || null;
+    S.rec = { restaurants: photosFirst, mid, radiusUsed, snappedStation };
+    renderResult(photosFirst, mid, radiusUsed, snappedStation);
     go('s-result');
   } catch(e) {
     document.getElementById('loc-error').textContent = e.message || '오류가 발생했어요. 다시 시도해주세요.';
@@ -200,7 +201,7 @@ function buildNaverUrl(r) {
   return `https://map.naver.com/p/search/${encodeURIComponent([shortAddr, name].filter(Boolean).join(' '))}`;
 }
 
-function renderResult(rests, mid, radiusUsed) {
+function renderResult(rests, mid, radiusUsed, snappedStation) {
   const condStr = S.condition.main || (S.condition.selected || []).join('·') || '';
   const titleText = condStr ? `${S.typeIcon} ${condStr} ${S.type}` : `${S.typeIcon} ${S.type}`;
   document.getElementById('res-title').textContent = titleText;
@@ -241,9 +242,9 @@ function renderResult(rests, mid, radiusUsed) {
   }
 
   const condLabel = S.condition.main || (S.condition.selected || []).join('·') || S.type;
-  const radiusLabel = `${radiusUsed}`;
+  const locationLabel = snappedStation ? `${snappedStation}역 근처` : `${radiusUsed}km 이내`;
   document.getElementById('res-subtitle') && (
-    document.getElementById('res-subtitle').textContent = `[ ${radiusLabel}km 이내의 ${condLabel} 추천 ]`
+    document.getElementById('res-subtitle').textContent = `[ ${locationLabel}의 ${condLabel} 추천 ]`
   );
 
   // 페이지 기반 슬라이싱
@@ -318,7 +319,7 @@ function nextRecommend() {
   const rests = S.rec?.restaurants || [];
   const totalPages = Math.ceil(rests.length / 3);
   S.recPage = (S.recPage + 1) % totalPages;
-  renderResult(rests, S.rec.mid, S.rec.radiusUsed);
+  renderResult(rests, S.rec.mid, S.rec.radiusUsed, S.rec.snappedStation);
   window.scrollTo(0, 0);
 }
 
