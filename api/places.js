@@ -71,53 +71,55 @@ export default async function handler(req, res) {
   ];
   const FOOD_DICT_SORTED = [...new Set(FOOD_DICT)].sort((a, b) => b.length - a.length);
 
-  const TYPE_MAP = {
-    bar: { ko: '술집', icon: '🍻' },
-    night_club: { ko: '클럽', icon: '🍸' },
-    cafe: { ko: '카페', icon: '☕' },
-    bakery: { ko: '베이커리', icon: '🥐' },
-    meal_takeaway: { ko: '포장전문', icon: '🥡' },
-    meal_delivery: { ko: '배달전문', icon: '🛵' },
-    korean_restaurant: { ko: '한식', icon: '🍚' },
-    chinese_restaurant: { ko: '중식', icon: '🥢' },
-    japanese_restaurant: { ko: '일식', icon: '🍣' },
-    italian_restaurant: { ko: '양식', icon: '🍝' },
-    french_restaurant: { ko: '양식', icon: '🍷' },
-    american_restaurant: { ko: '양식', icon: '🍔' },
-    seafood_restaurant: { ko: '해산물', icon: '🦐' },
-    steak_house: { ko: '스테이크', icon: '🥩' },
-    pizza_restaurant: { ko: '피자', icon: '🍕' },
-    sandwich_shop: { ko: '샌드위치', icon: '🥪' },
-    hamburger_restaurant: { ko: '버거', icon: '🍔' },
-    barbecue_restaurant: { ko: '바비큐', icon: '🍖' },
-    restaurant: { ko: '음식점', icon: '🍽️' },
-    food: { ko: '식당', icon: '🍽️' },
+  // ── cuisine 추론용 단어 사전 (Google types에 cuisine 태그 없을 때 fallback)
+  const CUISINE_DICT = {
+    korean: ['삼겹살','목살','오겹살','갈비','김치','된장','순대','곱창','막창','한식','korean','bbq','삼겹','찌개','국밥','순두부','떡볶이','김밥','분식','비빔밥','불고기','족발','보쌈','닭갈비','감자탕','해장국','설렁탕','곰탕','육개장','삼계탕','수제비','콩국수','막국수','냉면','국수','전','김치찜','김치찌개','부대찌개','두부','전골','쌈밥','한정식','숙성','노포'],
+    japanese: ['스시','사시미','초밥','japanese','sushi','이자카야','라멘','우동','텐푸라','텐동','오므라이스','돈까스','규동','오니기리','마끼','롤','가츠동','회','연어','참치','우니','쇼유','돈코츠','일식'],
+    chinese: ['짜장','짬뽕','탕수육','마라','마라탕','마라샹궈','꿔바로우','양꼬치','마파','짜장면','중식','chinese','동파육','깐풍기','유린기','딤섬'],
+    western: ['파스타','피자','스테이크','리조또','라자냐','뇨끼','샐러드','브런치','수프','감자튀김','햄버거','부리또','타코','퀘사디아','샌드위치','스파게티','크림파스타','로제파스타','토마토파스타','봉골레','알리오올리오','까르보나라','italian','french','american','western','양식','pasta','pizza','steak','burger','bistro','trattoria'],
+    cafe: ['커피','아메리카노','라떼','카푸치노','에스프레소','드립커피','콜드브루','말차','녹차','홍차','얼그레이','스무디','에이드','주스','빙수','젤라또','아이스크림','밀크티','버블티','와플','팬케이크','케이크','마카롱','마들렌','쿠키','크로와상','크로플','베이글','도넛','식빵','앙버터','휘낭시에','스콘','cafe','coffee','dessert','bakery','베이커리','디저트'],
+    bar: ['맥주','생맥주','수제맥주','크래프트맥주','크래프트','IPA','라거','흑맥주','스타우트','와인','사케','막걸리','칵테일','하이볼','위스키','보드카','진토닉','모히토','펍','술집','호프','beer','bar','pub','wine','이자카야'],
   };
-  const SPECIFIC_TYPES = ['bar','cafe','bakery','night_club','meal_takeaway','meal_delivery','steak_house','pizza_restaurant','sandwich_shop','hamburger_restaurant','barbecue_restaurant','seafood_restaurant'];
-  const CUISINE_TYPES = ['korean_restaurant','chinese_restaurant','japanese_restaurant','italian_restaurant','french_restaurant','american_restaurant'];
 
-  const buildCategory = (types, menus) => {
+  // Google types → cuisine 직매핑
+  const TYPE_TO_CUISINE = {
+    korean_restaurant: 'korean',
+    chinese_restaurant: 'chinese',
+    japanese_restaurant: 'japanese',
+    sushi_restaurant: 'japanese',
+    italian_restaurant: 'western',
+    french_restaurant: 'western',
+    american_restaurant: 'western',
+    steak_house: 'western',
+    pizza_restaurant: 'western',
+    sandwich_shop: 'western',
+    hamburger_restaurant: 'western',
+    barbecue_restaurant: 'korean',
+    cafe: 'cafe',
+    bakery: 'cafe',
+    bar: 'bar',
+    night_club: 'bar',
+  };
+
+  const detectCuisine = (name, types, blogText) => {
     const t = types || [];
-    const specific = t.find(x => SPECIFIC_TYPES.includes(x));
-    const cuisine = t.find(x => CUISINE_TYPES.includes(x));
-    let icon = '🍽️', label = '음식점';
-    if (specific && cuisine) {
-      icon = TYPE_MAP[specific].icon;
-      label = `${TYPE_MAP[cuisine].ko} · ${TYPE_MAP[specific].ko}`;
-    } else if (specific) {
-      icon = TYPE_MAP[specific].icon;
-      label = TYPE_MAP[specific].ko;
-    } else if (cuisine) {
-      icon = TYPE_MAP[cuisine].icon;
-      label = TYPE_MAP[cuisine].ko;
-    } else if (t.includes('restaurant')) {
-      icon = TYPE_MAP.restaurant.icon;
-      label = TYPE_MAP.restaurant.ko;
+    for (const tp of t) {
+      if (TYPE_TO_CUISINE[tp]) return TYPE_TO_CUISINE[tp];
     }
-    if (menus && menus.length) {
-      label = `${label} · ${menus[0]} 전문`;
+    const haystack = `${(name || '').toLowerCase()} ${(blogText || '').toLowerCase()}`;
+    if (!haystack.trim()) return null;
+    const scores = {};
+    for (const [cuisine, words] of Object.entries(CUISINE_DICT)) {
+      let s = 0;
+      for (const w of words) {
+        const re = new RegExp(w.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+        const m = haystack.match(re);
+        if (m) s += m.length;
+      }
+      scores[cuisine] = s;
     }
-    return { label: `${icon} ${label}`, icon };
+    const best = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
+    return (best && best[1] > 0) ? best[0] : null;
   };
 
   const extractMenus = (snippetText, keywordRaw) => {
@@ -181,6 +183,8 @@ export default async function handler(req, res) {
     if (action === 'nearby') {
       const { lat, lng, keyword, district } = req.query;
       const midLat = parseFloat(lat), midLng = parseFloat(lng);
+      const intent = (req.query.intent || '').trim();
+      const block = (req.query.block || '').split(',').map(s => s.trim()).filter(Boolean);
 
       const NAVER_ID = process.env.NAVER_CLIENT_ID;
       const NAVER_SECRET = process.env.NAVER_CLIENT_SECRET;
@@ -441,14 +445,12 @@ export default async function handler(req, res) {
       };
       const enrichedFiltered = enriched.filter(isGoogleFoodPlace);
 
-      // ── 4단계: 메뉴/카테고리 추출 + 거리 + 결정론적 스코어링
+      // ── 4단계: 메뉴 추출 (fallback) + cuisine 추론 + 거리 + 결정론적 스코어링
       enrichedFiltered.forEach(p => {
         const blogText = (p.blog_snippets || []).join(' ');
         const menuText = (p.menu_snippets || []).join(' ');
         p.menus = extractMenus(`${menuText} ${blogText}`, keyword);
-        const cat = buildCategory(p.types, p.menus);
-        p.category_label = cat.label;
-        p.category_icon = cat.icon;
+        p.cuisine = detectCuisine(p.name, p.types, `${blogText} ${menuText}`);
         p.dist_m = (p._lat && p._lng)
           ? Math.round(distKm(midLat, midLng, p._lat, p._lng) * 1000)
           : null;
@@ -470,12 +472,16 @@ export default async function handler(req, res) {
       };
 
       enrichedFiltered.forEach((p, i) => {
+        const intentBonus = (intent && p.cuisine === intent) ? 0.20 : 0;
+        const blockPenalty = (p.cuisine && block.includes(p.cuisine)) ? -0.40 : 0;
         p.score = +(
-          0.35 * ratingN[i] +
-          0.25 * blogN[i] +
-          0.20 * distN[i] +
+          0.30 * ratingN[i] +
+          0.20 * blogN[i] +
+          0.15 * distN[i] +
           0.10 * (p.photos?.length > 0 ? 1 : 0) +
-          0.10 * matchKeyword(p)
+          0.05 * matchKeyword(p) +
+          intentBonus +
+          blockPenalty
         ).toFixed(3);
       });
 

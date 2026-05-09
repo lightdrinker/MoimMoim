@@ -50,30 +50,40 @@ Stage 2: Naver 블로그/이미지 수집 (장소당 병렬)
       4차: "{keyword} {dong} 음식"
   - Naver 이미지는 CDN 차단 우회를 위해 서버사이드 프록시 (action=naver-image)
 
-Stage 3: 카테고리 매핑 + 메뉴 추출 (결정론적, Gemini 미사용)
-  - category_label: Google types → 한국어 매핑 (한식/중식/술집/카페 등)
-                    + 메뉴 1번이 있으면 "○○ 전문" 부착 (icon 포함)
-  - menus: 블로그 snippet 텍스트에서 음식 사전(FOOD_DICT) 매칭 + 빈도순 top3
-           검색 keyword 토큰 중 사전에 있으면 후보로 추가
+Stage 3: 메뉴 추출(fallback) + cuisine 추론 + 거리
+  - menus: 블로그 snippet에서 음식 사전(FOOD_DICT) 매칭 → 빈도순 top3 (LLM 실패 시 fallback)
+  - cuisine: Google types에 cuisine 태그(korean_restaurant 등) 있으면 우선 매핑,
+             없으면 가게명/블로그에서 CUISINE_DICT 단어 빈도로 추론
+             (korean / japanese / chinese / western / cafe / bar / null)
   - dist_m: 중간지점에서 직선거리 (m)
 
 Stage 4: 결정론적 스코어링 → top 10
-  score = 0.35 × norm(rating × log(reviews+1))   // 품질×인기
-        + 0.25 × norm(blog_count)                 // 한국형 핫함 (Naver hit)
-        + 0.20 × norm(dist, reverse=true)         // 가까울수록 높음
+  score = 0.30 × norm(rating × log(reviews+1))   // 품질×인기
+        + 0.20 × norm(blog_count)                 // Naver 블로그 hit
+        + 0.15 × norm(dist, reverse=true)         // 가까울수록 높음
         + 0.10 × (사진 유무)
-        + 0.10 × (가게명·주소·메뉴에 키워드 포함)
-  - normalize는 후보 내 min-max
+        + 0.05 × (이름·주소·메뉴에 키워드 포함)
+        + 0.20 × (cuisine === intent ? 1 : 0)    // 검색 의도 일치 가산
+        - 0.40 × (block에 cuisine 포함)           // 의도 불일치 강한 감점
+  - intent / block 은 프론트 buildKw에서 전달 (e.g. 양식 검색 → intent='western', block=['korean'])
 ```
 
-### 3. 사진 로딩 (result.js — loadPhotos)
+### 3. LLM 후처리 — 메뉴/요약 추출 (result.js — enrichWithLLM)
+- 백엔드의 결정론적 정렬은 그대로 신뢰. LLM은 **rank 변경 X**.
+- 입력: 후보 10개의 (name, address, blog_snippets, 사전추출 menus)
+- 출력: `[{name, menus[3], summary(15자)}]`
+- 모델: gemini-2.5-flash (~$0.001/검색)
+- 실패 시 fallback: 백엔드 menus 그대로, summary 빈 문자열
+
+### 4. 사진 로딩 (result.js — loadPhotos)
 - Google photo_reference → `/api/places?action=photo` → redirect URL
 - Google 없으면 → naver_image_urls (프록시 URL) fallback
 - `photosFirst` 정렬: 사진 있는 곳을 앞으로
 
 ### 4. 카드 렌더링 (result.js — renderResult)
-- 카드 본문 구조: `name` → `category_label` → `menus`(주황 칩) → `meta`(★평점·리뷰·🚶거리·📝블로그수) → 네이버맵 버튼
-- description/Gemini 큐레이션 없음 (백엔드에서 결정론적으로 산출된 필드를 그대로 표시)
+- 카드 본문 구조: `name` → `menus`(주황 칩) → `summary`(✨ 한줄요약) → `meta`(★평점·리뷰·🚶거리·📝블로그수) → 네이버맵 버튼
+- 카테고리 라벨(예: "양식")은 사용자가 이미 검색 단계에서 선택한 정보라 카드에 다시 표시하지 않음
+- summary가 비어 있으면 자리를 비우고 "정보없음" 류 텍스트는 표시하지 않음
 
 ### 5. 키워드 매핑 (result.js — buildKw)
 | 모임 타입 | 키워드 예시 |
@@ -90,15 +100,15 @@ Stage 4: 결정론적 스코어링 → top 10
 GOOGLE_PLACES_API_KEY   # Google Places API
 NAVER_CLIENT_ID         # Naver Search API
 NAVER_CLIENT_SECRET
-GEMINI_API_KEY          # (현재 미사용 — gemini 액션은 호환용으로만 남아있음)
+GEMINI_API_KEY          # Gemini 2.5 Flash (메뉴/요약 추출용)
 ```
 
 ## API 엔드포인트 (api/places.js)
 | action | 메서드 | 설명 |
 |--------|--------|------|
-| `nearby` | GET | 중간지점 장소 추천 메인 |
+| `nearby` | GET | 중간지점 장소 추천 메인 (intent/block 쿼리로 의도 매칭) |
 | `photo` | GET | Google Places 사진 URL 반환 |
-| `gemini` | POST | (레거시) Gemini 프록시 — 현재 프론트에서 호출하지 않음 |
+| `gemini` | POST | Gemini 큐레이션 프록시 (메뉴/요약 추출 전용) |
 | `naver-image` | GET | Naver 이미지 CDN 프록시 (Referer 우회) |
 
 ## 주요 UI 기능

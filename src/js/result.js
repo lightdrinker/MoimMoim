@@ -6,16 +6,16 @@ async function getRecommend() {
     const mid = weightedCentroid(S.pins);
 
     step(2);
-    const [kw, type, blogKw] = buildKw();
+    const { keyword, intent, block } = buildKw();
     const district = await getMidDistrict(mid.lat, mid.lng);
-    const nr = await fetch(`/api/places?action=nearby&lat=${mid.lat}&lng=${mid.lng}&keyword=${encodeURIComponent(kw)}&type=${type}&blogKw=${encodeURIComponent(blogKw)}&district=${encodeURIComponent(district)}`);
+    const nr = await fetch(`/api/places?action=nearby&lat=${mid.lat}&lng=${mid.lng}&keyword=${encodeURIComponent(keyword)}&intent=${encodeURIComponent(intent)}&block=${encodeURIComponent(block.join(','))}&district=${encodeURIComponent(district)}`);
     const nd = await nr.json();
     if (!nd.results?.length) throw new Error('주변에 식당을 찾지 못했어요. 출발지를 다시 설정해보세요.');
 
     const top = nd.results.slice(0, 10);
 
     step(3);
-    const enriched = top.map((r, i) => ({ ...r, display_name: r.name, rank: i + 1 }));
+    const enriched = await enrichWithLLM(top);
 
     step(4);
     const withPhotos = await loadPhotos(enriched);
@@ -40,17 +40,19 @@ async function getRecommend() {
 
 function buildKw() {
   const c = S.condition;
+  const main = c.main || '';
+
   const map = {
-    '술자리': c.main?.includes('와인') ? '와인바' :
-              c.main?.includes('사케') ? '이자카야 사케' :
-              c.main?.includes('막걸리') ? '막걸리 전통주' :
-              c.main?.includes('맥주') ? '호프집 생맥주' :
-              c.main?.includes('상관') ? '술집 주점' :
+    '술자리': main.includes('와인') ? '와인바' :
+              main.includes('사케') ? '이자카야 사케' :
+              main.includes('막걸리') ? '막걸리 전통주' :
+              main.includes('맥주') ? '호프집 생맥주' :
+              main.includes('상관') ? '술집 주점' :
               '소주 안주 술집',
-    '회식': c.main?.includes('중식') ? '중식당 중국집' :
-            c.main?.includes('일식') ? '일식당' :
-            c.main?.includes('양식') ? '양식 레스토랑' :
-            c.main?.includes('상관') ? '단체 식당 맛집' :
+    '회식': main.includes('중식') ? '중식당 중국집' :
+            main.includes('일식') ? '일식당' :
+            main.includes('양식') ? '양식 레스토랑' :
+            main.includes('상관') ? '단체 식당 맛집' :
             '한식 고기집 구이',
     '가족': (() => {
       const sel = c.selected || [];
@@ -62,22 +64,100 @@ function buildKw() {
       ].filter(Boolean);
       return (parts.slice(0, 2).join(' ') || '가족') + ' 식당';
     })(),
-    '식사': c.main === '상관없음' || !c.main ? '맛집' :
-            c.main === '한식' ? '한식당' :
-            c.main === '중식' ? '중식당 중국집' :
-            c.main === '일식' ? '일식당' :
-            c.main === '양식' ? '양식 레스토랑' :
-            c.main === '동남아' ? '동남아 음식 아시안' : '맛집',
-    '카페': c.main?.includes('빵') ? '베이커리 빵집' :
-            c.main?.includes('디저트') ? '디저트 카페' :
-            c.main?.includes('음료') ? '카페 커피' :
+    '식사': main === '상관없음' || !main ? '맛집' :
+            main === '한식' ? '한식당' :
+            main === '중식' ? '중식당 중국집' :
+            main === '일식' ? '일식당' :
+            main === '양식' ? '양식 레스토랑' :
+            main === '동남아' ? '동남아 음식 아시안' : '맛집',
+    '카페': main.includes('빵') ? '베이커리 빵집' :
+            main.includes('디저트') ? '디저트 카페' :
+            main.includes('음료') ? '카페 커피' :
             '카페',
-    '청첩': c.main?.includes('맛집') ? '모임 맛집 레스토랑' :
-            c.main?.includes('분위기') ? '분위기 좋은 레스토랑' :
+    '청첩': main.includes('맛집') ? '모임 맛집 레스토랑' :
+            main.includes('분위기') ? '분위기 좋은 레스토랑' :
             '조용한 레스토랑 모임',
   };
-  const kw = map[S.type] || '맛집';
-  return [kw, 'restaurant', kw];
+  const keyword = map[S.type] || '맛집';
+
+  // intent / block — 검색 의도로 cuisine 매칭/감점 (백엔드와 약속된 토큰)
+  let intent = '', block = [];
+  if (S.type === '술자리') intent = 'bar';
+  else if (S.type === '카페') intent = 'cafe';
+  else if (main.includes('중식')) { intent = 'chinese'; block = ['korean']; }
+  else if (main.includes('일식') || main.includes('사케')) { intent = 'japanese'; block = ['korean']; }
+  else if (main.includes('양식')) { intent = 'western'; block = ['korean']; }
+  else if (main === '한식' || (S.type === '회식' && !main.includes('상관'))) intent = 'korean';
+  else if (main.includes('막걸리')) intent = 'korean';
+
+  return { keyword, intent, block };
+}
+
+async function enrichWithLLM(restaurants) {
+  // 백엔드의 결정론적 정렬을 신뢰. LLM은 메뉴 칩(menus)과 한줄요약(summary) 추출만 담당.
+  const list = restaurants.map((r, i) => {
+    const blogText = (r.blog_snippets || []).join(' | ').slice(0, 400);
+    const fallback = (r.menus || []).join(', ');
+    return `${i+1}. ${r.name}
+   주소: ${r.formatted_address || ''}
+   블로그: ${blogText || '(없음)'}
+   사전추출메뉴: ${fallback || '(없음)'}`;
+  }).join('\n\n');
+
+  const prompt = `다음 식당 각각에 대해 "대표메뉴 최대 3개"와 "한줄 분위기 요약(15자 이내)"을 추출하세요.
+
+[규칙]
+- 블로그에 명시된 음식/음료/메뉴명만 추출. 사전추출메뉴는 참고용이며, 블로그에 등장한 단어에 한해 채택.
+- 분위기 요약은 블로그 톤에서만 작성. 절대 추측하지 말고 근거가 부족하면 빈 문자열로 두세요.
+- 메뉴 근거가 없으면 menus는 빈 배열로 두세요.
+
+[식당 목록]
+${list}
+
+JSON 배열로만 응답하세요. 다른 텍스트 없이:
+[{"name":"식당명","menus":["메뉴1","메뉴2","메뉴3"],"summary":"15자이내요약"}]`;
+
+  try {
+    const res = await fetch('/api/places?action=gemini', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
+    const d = await res.json();
+    const text = (d.text || '').trim();
+
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    if (!Array.isArray(parsed)) {
+      const m = text.match(/\[[\s\S]*\]/);
+      if (m) try { parsed = JSON.parse(m[0]); } catch {}
+    }
+    if (!Array.isArray(parsed)) {
+      const clean = text.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'').trim();
+      try { parsed = JSON.parse(clean); } catch {}
+    }
+
+    if (Array.isArray(parsed) && parsed.length) {
+      return restaurants.map((r, i) => {
+        const item = parsed.find(p => p.name === r.name)
+          || parsed.find(p => p.name && r.name && r.name.includes(p.name))
+          || parsed.find(p => p.name && r.name && p.name.includes(r.name))
+          || parsed[i];
+        const llmMenus = (item?.menus || []).filter(Boolean).slice(0, 3);
+        return {
+          ...r,
+          display_name: r.name,
+          rank: i + 1,
+          menus: llmMenus.length ? llmMenus : (r.menus || []),
+          summary: (item?.summary || '').slice(0, 30),
+        };
+      });
+    }
+  } catch {}
+
+  // LLM 실패 시 백엔드 결과를 그대로 사용 (메뉴는 사전 추출 fallback)
+  return restaurants.map((r, i) => ({
+    ...r, display_name: r.name, rank: i + 1, summary: '',
+  }));
 }
 
 async function loadPhotos(rests) {
@@ -205,7 +285,7 @@ function renderResult(rests, mid, radiusUsed, snappedStation) {
     ].filter(Boolean).join('');
 
     const menus = r.menus || [];
-    const category = r.category_label || '';
+    const summary = r.summary || '';
 
     const naverUrl = buildNaverUrl(r);
     card.innerHTML = `
@@ -215,8 +295,8 @@ function renderResult(rests, mid, radiusUsed, snappedStation) {
       </div>
       <div class="rest-body">
         <p class="rest-name">${r.display_name||r.name}</p>
-        ${category ? `<p class="rest-category">${category}</p>` : ''}
         ${menus.length ? `<div class="rest-tags">${menus.map(t=>`<span class="rest-tag menu">${t}</span>`).join('')}</div>` : ''}
+        ${summary ? `<p class="rest-summary">✨ ${summary}</p>` : ''}
         ${meta ? `<div class="rest-meta">${meta}</div>` : ''}
         <div class="card-action-row">
           <a href="${naverUrl}" target="_blank" class="btn-naver">🗺 네이버맵으로 보기</a>
@@ -252,7 +332,7 @@ async function shareResultUrl() {
     p: pageRests.map((r, i) => ({
       n: r.display_name || r.name,
       u: buildNaverUrl(r),
-      c: r.category_label || '',
+      s: r.summary || '',
       m: (r.menus || []).slice(0, 3),
       r: startIdx + i + 1,
     }))
@@ -287,7 +367,7 @@ function showSharedResult(data) {
     const rankStr = rank <= 3 ? `${MEDALS[rank - 1]} ${rank}위` : `${rank}위`;
     const rc = RC[(rank - 1) % 3];
     const menus = p.m || [];
-    const category = p.c || '';
+    const summary = p.s || '';
     const card = document.createElement('div');
     card.className = 'rest-card';
     card.innerHTML = `
@@ -295,8 +375,8 @@ function showSharedResult(data) {
       <div class="rest-body">
         <p style="font-size:12px;color:var(--accent);font-weight:700;margin-bottom:4px">${rankStr}</p>
         <p class="rest-name">${p.n}</p>
-        ${category ? `<p class="rest-category">${category}</p>` : ''}
         ${menus.length ? `<div class="rest-tags">${menus.map(t=>`<span class="rest-tag menu">${t}</span>`).join('')}</div>` : ''}
+        ${summary ? `<p class="rest-summary">✨ ${summary}</p>` : ''}
         <a href="${p.u}" target="_blank" class="btn-naver">🗺 네이버맵으로 보기</a>
       </div>`;
     container.appendChild(card);
