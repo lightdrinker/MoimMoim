@@ -15,7 +15,7 @@ async function getRecommend() {
     const top = nd.results.slice(0, 10);
 
     step(3);
-    const enriched = await runGemini(top);
+    const enriched = top.map((r, i) => ({ ...r, display_name: r.name, rank: i + 1 }));
 
     step(4);
     const withPhotos = await loadPhotos(enriched);
@@ -78,96 +78,6 @@ function buildKw() {
   };
   const kw = map[S.type] || '맛집';
   return [kw, 'restaurant', kw];
-}
-
-async function runGemini(restaurants) {
-  const list = restaurants.map((r, i) => {
-    const menuText = (r.menu_snippets || []).join(' | ').slice(0, 200);
-    const blogText = (r.blog_snippets || []).join(' | ').slice(0, 300);
-    const ratingStr = r.rating ? `${r.rating}점 (리뷰 ${(r.user_ratings_total||0).toLocaleString()}개)` : '없음';
-    return `${i+1}. ${r.name}
-   주소: ${r.formatted_address || ''}
-   평점: ${ratingStr}
-   메뉴 블로그: ${menuText || '없음'}
-   후기 블로그: ${blogText || '없음'}`;
-  }).join('\n\n');
-
-  const cstr = S.condition.main || S.condition.selected?.join(', ') || '상관없음';
-  const prompt = `당신은 한국 맛집 큐레이터입니다.
-
-[지시사항]
-아래 식당 목록에서 "${S.type}" 모임 (조건: ${cstr})에 잘 맞는 TOP 10을 순위대로 선정하세요.
-블로그 후기가 있는 식당을 우선 순위로 배치하고, 평점도 순위 결정에 반영하세요.
-각 식당의 description과 tags는 반드시 블로그 후기에 실제로 존재하는 내용만 기반으로 작성하세요.
-
-[description template - 블로그 후기가 있는 경우]
- 대표메뉴: (메뉴 블로그에서 언급된 음식·음료명 최대 3개, 없으면 후기 블로그에서 추출, 적절한 이모티콘 삽입)
- 분위기·특징을 15자 이내로 요약해서 딱 보면 어떤 곳인지 알 수 있게 작성 (이모티콘 활용 권장)
-
-[description template - 블로그 후기가 없는 경우]
- 후기 정보 없음
-
-[tags 형식]
-블로그 후기에서 추출한 음식/분위기/특징 키워드 3개 (후기 없으면 빈 배열 [])
-
-[주의사항]
-- 블로그 원문 문장을 절대 그대로 복사하지 마세요
-- 한줄요약은 반드시 15자 이내
-- 대표메뉴는 블로그에서 언급된 음식·음료·메뉴 관련 단어를 추출하세요. 블로그에 아무 음식 관련 언급이 없을 때만 공란으로 두세요
-- 블로그에 전혀 근거 없는 메뉴나 분위기는 지어내지 마세요
-- 블로그 후기가 없는 식당은 description을 "후기 정보 없음"으로만 표시하세요
-- 반드시 10개 모두 선정하세요 (식당이 10개 미만이면 있는 만큼만)
-
-식당 목록:
-${list}
-
-반드시 아래 JSON 배열 형식으로만 응답하세요. 다른 텍스트 없이 JSON만:
-[{"rank":1,"name":"식당명","description":"🍽 대표메뉴: 메뉴1, 메뉴2\n✨ 한줄요약: 15자이내요약","tags":["태그1","태그2","태그3"]},{"rank":2,"name":"식당명","description":"🍽 대표메뉴: 메뉴1, 메뉴2\n✨ 한줄요약: 15자이내요약","tags":["태그1","태그2","태그3"]}]`;
-
-  try {
-    const res = await fetch('/api/places?action=gemini', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    });
-    const d = await res.json();
-    const text = (d.text || '').trim();
-
-    let parsed = null;
-    try { parsed = JSON.parse(text); } catch {}
-    if (!Array.isArray(parsed)) {
-      const m = text.match(/\[[\s\S]*\]/);
-      if (m) try { parsed = JSON.parse(m[0]); } catch {}
-    }
-    if (!Array.isArray(parsed)) {
-      const clean = text.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'').trim();
-      try { parsed = JSON.parse(clean); } catch {}
-    }
-
-    if (Array.isArray(parsed) && parsed.length) {
-      return parsed.map(item => {
-        const orig = restaurants.find(r => r.name === item.name)
-          || restaurants.find(r => r.name && item.name && r.name.includes(item.name))
-          || restaurants.find(r => r.name && item.name && item.name.includes(r.name))
-          || restaurants[(item.rank || 1) - 1]
-          || restaurants[0];
-        return { ...orig, display_name: item.name || orig.name, description: item.description || '', tags: item.tags || [], rank: item.rank };
-      });
-    }
-  } catch(e) { /* Gemini 호출 실패 시 fallback */ }
-
-  const typeMap = {
-    restaurant: '음식점', bar: '바', cafe: '카페', bakery: '베이커리',
-    meal_takeaway: '포장가능', meal_delivery: '배달', night_club: '나이트클럽',
-    liquor_store: '주류', food: '식당',
-  };
-  return restaurants.slice(0, 10).map((r, i) => {
-    const desc = (r.blog_snippets || []).find(s => s && s.trim()) || '';
-    const rawTags = (r.types || [])
-      .filter(t => !['point_of_interest','establishment','food','premise'].includes(t))
-      .slice(0, 3)
-      .map(t => typeMap[t] || t.replace(/_/g, ' '));
-    return { ...r, display_name: r.name, description: desc.slice(0, 100), tags: rawTags, rank: i+1 };
-  });
 }
 
 async function loadPhotos(rests) {
@@ -284,10 +194,18 @@ function renderResult(rests, mid, radiusUsed, snappedStation) {
         <div class="photo-placeholder">🍽️</div>`;
     }
 
+    const distStr = r.dist_m != null
+      ? (r.dist_m >= 1000 ? `${(r.dist_m/1000).toFixed(1)}km` : `${r.dist_m}m`)
+      : '';
     const meta = [
       r.rating ? `<span class="rest-rating">★ ${r.rating}</span><span class="rest-reviews">(${(r.user_ratings_total||0).toLocaleString()})</span>` : '',
       r.price_level ? `<span class="rest-price">${'₩'.repeat(r.price_level)}</span>` : '',
+      distStr ? `<span class="rest-dist">🚶 ${distStr}</span>` : '',
+      r.blog_count ? `<span class="rest-blog">📝 ${r.blog_count.toLocaleString()}</span>` : '',
     ].filter(Boolean).join('');
+
+    const menus = r.menus || [];
+    const category = r.category_label || '';
 
     const naverUrl = buildNaverUrl(r);
     card.innerHTML = `
@@ -297,9 +215,9 @@ function renderResult(rests, mid, radiusUsed, snappedStation) {
       </div>
       <div class="rest-body">
         <p class="rest-name">${r.display_name||r.name}</p>
-        <p class="rest-desc">${(r.description||'').replace(/\n/g, '<br>')}</p>
+        ${category ? `<p class="rest-category">${category}</p>` : ''}
+        ${menus.length ? `<div class="rest-tags">${menus.map(t=>`<span class="rest-tag menu">${t}</span>`).join('')}</div>` : ''}
         ${meta ? `<div class="rest-meta">${meta}</div>` : ''}
-        ${(r.tags||[]).length ? `<div class="rest-tags">${r.tags.map(t=>`<span class="rest-tag">${t}</span>`).join('')}</div>` : ''}
         <div class="card-action-row">
           <a href="${naverUrl}" target="_blank" class="btn-naver">🗺 네이버맵으로 보기</a>
           <button class="btn-share-single" onclick="shareCard(${globalRank})" title="공유">↗</button>
@@ -334,7 +252,8 @@ async function shareResultUrl() {
     p: pageRests.map((r, i) => ({
       n: r.display_name || r.name,
       u: buildNaverUrl(r),
-      d: (r.description || '').slice(0, 100),
+      c: r.category_label || '',
+      m: (r.menus || []).slice(0, 3),
       r: startIdx + i + 1,
     }))
   };
@@ -367,6 +286,8 @@ function showSharedResult(data) {
     const rank = p.r || 1;
     const rankStr = rank <= 3 ? `${MEDALS[rank - 1]} ${rank}위` : `${rank}위`;
     const rc = RC[(rank - 1) % 3];
+    const menus = p.m || [];
+    const category = p.c || '';
     const card = document.createElement('div');
     card.className = 'rest-card';
     card.innerHTML = `
@@ -374,7 +295,8 @@ function showSharedResult(data) {
       <div class="rest-body">
         <p style="font-size:12px;color:var(--accent);font-weight:700;margin-bottom:4px">${rankStr}</p>
         <p class="rest-name">${p.n}</p>
-        <p class="rest-desc">${(p.d || '').replace(/\n/g, '<br>')}</p>
+        ${category ? `<p class="rest-category">${category}</p>` : ''}
+        ${menus.length ? `<div class="rest-tags">${menus.map(t=>`<span class="rest-tag menu">${t}</span>`).join('')}</div>` : ''}
         <a href="${p.u}" target="_blank" class="btn-naver">🗺 네이버맵으로 보기</a>
       </div>`;
     container.appendChild(card);

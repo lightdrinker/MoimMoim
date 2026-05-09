@@ -40,6 +40,119 @@ export default async function handler(req, res) {
     }
   }
 
+  // ── 음식 사전 / 카테고리 매핑 / 메뉴 추출 / 스코어링 유틸
+  const FOOD_DICT = [
+    // 한식
+    '삼겹살','목살','오겹살','갈비살','차돌박이','우삼겹','LA갈비','갈비탕','갈비찜','갈비','등심','안심','육회',
+    '김치찌개','된장찌개','부대찌개','순두부찌개','순두부','김치찜','순대국','순댓국','감자탕','뼈해장국','해장국','설렁탕','곰탕','육개장','삼계탕','닭한마리','닭볶음탕',
+    '곱창','대창','막창','닭갈비','제육볶음','제육','불고기','떡갈비','족발','보쌈','수육','김치말이','국밥',
+    '비빔밥','회덮밥','연어덮밥','참치덮밥','오징어덮밥','떡볶이','순대','튀김','김밥','라면','우동','만두','칼국수','콩국수','잔치국수','수제비','냉면','막국수','국수',
+    '김치전','파전','부추전','해물파전','모듬전','메밀전병','전','전골','뚝배기',
+    // 중식
+    '짜장면','짬뽕','탕수육','마라탕','마라샹궈','꿔바로우','양꼬치','마파두부','짜장','쟁반짜장','삼선짜장','볶음밥','동파육','깐풍기','유린기',
+    // 일식
+    '초밥','스시','사시미','회','연어','참치','우니','이자카야','꼬치','야키토리','오뎅','어묵',
+    '라멘','돈코츠','쇼유','텐푸라','텐동','오므라이스','카레','돈까스','규동','우니덮밥','오니기리','마끼','롤','가츠동',
+    // 양식
+    '파스타','피자','스테이크','리조또','라자냐','뇨끼','샐러드','브런치','수프','감자튀김',
+    '햄버거','부리또','타코','퀘사디아','샌드위치','스파게티','크림파스타','로제파스타','토마토파스타','봉골레','알리오올리오','까르보나라','뇨끼',
+    // 디저트/카페
+    '와플','팬케이크','케이크','컵케이크','마카롱','마들렌','쿠키','크로와상','크로플','크로크무슈','베이글','도넛','식빵','크림빵','앙버터','휘낭시에','스콘',
+    '커피','아메리카노','라떼','카푸치노','에스프레소','드립커피','콜드브루','말차','녹차','홍차','얼그레이','스무디','에이드','주스','빙수','젤라또','아이스크림','밀크티','버블티',
+    // 술
+    '맥주','생맥주','수제맥주','크래프트맥주','크래프트','IPA','라거','흑맥주','스타우트','에일','밀맥주','필스너',
+    '와인','레드와인','화이트와인','로제와인','스파클링','샴페인',
+    '사케','정종','청주','막걸리','동동주','전통주','소주','과실주','매실주','복분자','칵테일','하이볼','진토닉','모히토','마티니','데킬라','위스키','보드카','럼','진',
+    // 안주
+    '치킨','후라이드','양념치킨','간장치킨','파닭','순살','뼈닭','반반','닭발','닭똥집','똥집','노가리','쥐포','마른안주','골뱅이','골뱅이무침','오징어','쭈꾸미','낙지',
+    '소시지','햄','치즈','나초','피쉬앤칩스','올리브','피넛','콘치즈','계란찜','두부김치','감자전','옥수수치즈',
+    // 동남아
+    '쌀국수','분짜','반미','팟타이','똠얌꿍','나시고렝','미고렝','월남쌈','짜조','커리','똠얌',
+  ];
+  const FOOD_DICT_SORTED = [...new Set(FOOD_DICT)].sort((a, b) => b.length - a.length);
+
+  const TYPE_MAP = {
+    bar: { ko: '술집', icon: '🍻' },
+    night_club: { ko: '클럽', icon: '🍸' },
+    cafe: { ko: '카페', icon: '☕' },
+    bakery: { ko: '베이커리', icon: '🥐' },
+    meal_takeaway: { ko: '포장전문', icon: '🥡' },
+    meal_delivery: { ko: '배달전문', icon: '🛵' },
+    korean_restaurant: { ko: '한식', icon: '🍚' },
+    chinese_restaurant: { ko: '중식', icon: '🥢' },
+    japanese_restaurant: { ko: '일식', icon: '🍣' },
+    italian_restaurant: { ko: '양식', icon: '🍝' },
+    french_restaurant: { ko: '양식', icon: '🍷' },
+    american_restaurant: { ko: '양식', icon: '🍔' },
+    seafood_restaurant: { ko: '해산물', icon: '🦐' },
+    steak_house: { ko: '스테이크', icon: '🥩' },
+    pizza_restaurant: { ko: '피자', icon: '🍕' },
+    sandwich_shop: { ko: '샌드위치', icon: '🥪' },
+    hamburger_restaurant: { ko: '버거', icon: '🍔' },
+    barbecue_restaurant: { ko: '바비큐', icon: '🍖' },
+    restaurant: { ko: '음식점', icon: '🍽️' },
+    food: { ko: '식당', icon: '🍽️' },
+  };
+  const SPECIFIC_TYPES = ['bar','cafe','bakery','night_club','meal_takeaway','meal_delivery','steak_house','pizza_restaurant','sandwich_shop','hamburger_restaurant','barbecue_restaurant','seafood_restaurant'];
+  const CUISINE_TYPES = ['korean_restaurant','chinese_restaurant','japanese_restaurant','italian_restaurant','french_restaurant','american_restaurant'];
+
+  const buildCategory = (types, menus) => {
+    const t = types || [];
+    const specific = t.find(x => SPECIFIC_TYPES.includes(x));
+    const cuisine = t.find(x => CUISINE_TYPES.includes(x));
+    let icon = '🍽️', label = '음식점';
+    if (specific && cuisine) {
+      icon = TYPE_MAP[specific].icon;
+      label = `${TYPE_MAP[cuisine].ko} · ${TYPE_MAP[specific].ko}`;
+    } else if (specific) {
+      icon = TYPE_MAP[specific].icon;
+      label = TYPE_MAP[specific].ko;
+    } else if (cuisine) {
+      icon = TYPE_MAP[cuisine].icon;
+      label = TYPE_MAP[cuisine].ko;
+    } else if (t.includes('restaurant')) {
+      icon = TYPE_MAP.restaurant.icon;
+      label = TYPE_MAP.restaurant.ko;
+    }
+    if (menus && menus.length) {
+      label = `${label} · ${menus[0]} 전문`;
+    }
+    return { label: `${icon} ${label}`, icon };
+  };
+
+  const extractMenus = (snippetText, keywordRaw) => {
+    const text = (snippetText || '').toString();
+    const counts = new Map();
+    if (text) {
+      for (const word of FOOD_DICT_SORTED) {
+        if (!text.includes(word)) continue;
+        const re = new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+        const m = text.match(re);
+        if (m) counts.set(word, m.length);
+      }
+    }
+    if (keywordRaw) {
+      keywordRaw.split(/\s+/).forEach(w => {
+        if (FOOD_DICT.includes(w) && !counts.has(w)) counts.set(w, 1);
+      });
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([w]) => w);
+  };
+
+  const normalize = (vals, reverse = false) => {
+    if (!vals.length) return [];
+    let min = Infinity, max = -Infinity;
+    for (const v of vals) { if (v < min) min = v; if (v > max) max = v; }
+    if (max === min) return vals.map(() => 0.5);
+    return vals.map(v => {
+      const n = (v - min) / (max - min);
+      return reverse ? 1 - n : n;
+    });
+  };
+
   if (action === 'naver-image') {
     const imageUrl = decodeURIComponent(req.query.url || '');
     if (!imageUrl || !imageUrl.startsWith('http')) return res.status(400).end();
@@ -225,7 +338,7 @@ export default async function handler(req, res) {
         _lng: p.geometry?.location?.lng,
       }));
 
-      // ── 3단계: 블로그 snippet + 네이버 이미지 수집 (장소당 병렬 처리)
+      // ── 3단계: 블로그 snippet/hit 수 + 네이버 이미지 수집 (장소당 병렬 처리)
       if (NAVER_ID && NAVER_SECRET) {
         const fetchBlog = async (q) => {
           try {
@@ -234,7 +347,7 @@ export default async function handler(req, res) {
               headers: { 'X-Naver-Client-Id': NAVER_ID, 'X-Naver-Client-Secret': NAVER_SECRET },
             });
             const blogData = await blogRes.json();
-            return (blogData.items || []).slice(0, 3).map(item =>
+            const snippets = (blogData.items || []).slice(0, 3).map(item =>
               (item.title + ' ' + item.description)
                 .replace(/<[^>]+>/g, '')
                 .replace(/&quot;/g, '"')
@@ -242,7 +355,8 @@ export default async function handler(req, res) {
                 .replace(/&#\d+;/g, '')
                 .slice(0, 200)
             );
-          } catch { return []; }
+            return { total: blogData.total || 0, snippets };
+          } catch { return { total: 0, snippets: [] }; }
         };
 
         const fetchImageQuery = async (q) => {
@@ -290,56 +404,25 @@ export default async function handler(req, res) {
           const queryWithLoc = dong ? `${dong} ${place.name}` : place.name;
 
           // 위치 블로그 · 메뉴 블로그 · 이미지 동시 요청
-          const [snippetsWithLoc, menuSnippets, naverImages] = await Promise.all([
+          const [locResult, menuResult, naverImages] = await Promise.all([
             fetchBlog(queryWithLoc),
             fetchBlog(`${place.name} 메뉴`),
             fetchImage(place.name, dong, keyword),
           ]);
 
           // 위치 결과가 부족할 때만 이름 단독 재시도 (1회만)
-          let snippets = snippetsWithLoc;
+          let snippets = locResult.snippets;
+          let total = locResult.total;
           if (snippets.length < 2 && dong) {
-            snippets = await fetchBlog(place.name);
+            const retry = await fetchBlog(place.name);
+            snippets = retry.snippets;
+            total = retry.total || total;
           }
 
           place.blog_snippets = snippets;
-          place.menu_snippets = menuSnippets;
+          place.menu_snippets = menuResult.snippets;
           place.naver_image_urls = naverImages;
-        }));
-      }
-
-      // ── 4단계: 블로그 snippet 없는 식당 → Gemini Grounding으로 보완 (5초 타임아웃)
-      if (GEMINI_KEY) {
-        await Promise.all(enriched.map(async place => {
-          if (place.blog_snippets && place.blog_snippets.length > 0) return;
-          try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 5000);
-            const dong = extractDong(place.formatted_address);
-            const locStr = dong ? `(위치: ${dong})` : '';
-            const groundingPrompt = `${place.name} ${locStr} 식당에 대해 검색해서 실제로 확인된 대표 메뉴와 분위기만 100자 이내로 알려주세요. 검색 결과에서 확인된 정보가 없거나 불확실하면 반드시 "정보없음"이라고만 답하세요. 추측하거나 일반적인 내용을 작성하지 마세요.`;
-            const gr = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: groundingPrompt }] }],
-                  tools: [{ googleSearch: {} }],
-                  generationConfig: { temperature: 0.2, maxOutputTokens: 512 },
-                }),
-                signal: controller.signal,
-              }
-            );
-            clearTimeout(timer);
-            const gd = await gr.json();
-            const groundingText = (gd?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-            if (groundingText && !groundingText.includes('정보없음') && groundingText.length > 15) {
-              place.blog_snippets = [groundingText.slice(0, 300)];
-            }
-          } catch {
-            // Grounding 실패/타임아웃 시 무시
-          }
+          place.blog_count = total;
         }));
       }
 
@@ -353,15 +436,52 @@ export default async function handler(req, res) {
         'lodging', 'hotel',
       ];
       const isGoogleFoodPlace = (r) => {
-        if (!r.types || !r.types.length) return true; // types 없으면(Naver only) 통과
+        if (!r.types || !r.types.length) return true;
         return !r.types.some(t => GOOGLE_BLOCKED_TYPES.includes(t));
       };
       const enrichedFiltered = enriched.filter(isGoogleFoodPlace);
 
-      // 평점 3.5↑ 우선, 나머지 후순위 (Google 결과라 전체 place_id 있음)
-      const tier1 = enrichedFiltered.filter(r => r.rating >= 3.5);
-      const tier2 = enrichedFiltered.filter(r => !r.rating || r.rating < 3.5);
-      const finalFiltered = [...tier1, ...tier2].slice(0, 10);
+      // ── 4단계: 메뉴/카테고리 추출 + 거리 + 결정론적 스코어링
+      enrichedFiltered.forEach(p => {
+        const blogText = (p.blog_snippets || []).join(' ');
+        const menuText = (p.menu_snippets || []).join(' ');
+        p.menus = extractMenus(`${menuText} ${blogText}`, keyword);
+        const cat = buildCategory(p.types, p.menus);
+        p.category_label = cat.label;
+        p.category_icon = cat.icon;
+        p.dist_m = (p._lat && p._lng)
+          ? Math.round(distKm(midLat, midLng, p._lat, p._lng) * 1000)
+          : null;
+      });
+
+      const ratingRaw = enrichedFiltered.map(p => (p.rating || 0) * Math.log((p.user_ratings_total || 0) + 1));
+      const blogRaw = enrichedFiltered.map(p => p.blog_count || 0);
+      const distRaw = enrichedFiltered.map(p => p.dist_m == null ? 9999 : p.dist_m);
+
+      const ratingN = normalize(ratingRaw);
+      const blogN = normalize(blogRaw);
+      const distN = normalize(distRaw, true);
+
+      const kwTokens = (keyword || '').split(/\s+/).filter(Boolean);
+      const matchKeyword = (p) => {
+        if (!kwTokens.length) return 0;
+        const hay = `${p.name} ${p.formatted_address} ${(p.menus || []).join(' ')}`;
+        return kwTokens.some(t => hay.includes(t)) ? 1 : 0;
+      };
+
+      enrichedFiltered.forEach((p, i) => {
+        p.score = +(
+          0.35 * ratingN[i] +
+          0.25 * blogN[i] +
+          0.20 * distN[i] +
+          0.10 * (p.photos?.length > 0 ? 1 : 0) +
+          0.10 * matchKeyword(p)
+        ).toFixed(3);
+      });
+
+      const finalFiltered = [...enrichedFiltered]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10);
 
       return res.status(200).json({ results: finalFiltered, radiusUsed, snappedStation: snap.name, snappedDistKm: Math.round(snap.dist * 10) / 10 });
     }
