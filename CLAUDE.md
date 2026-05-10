@@ -51,7 +51,8 @@ Stage 2: Naver 블로그/이미지 수집 (장소당 병렬)
   - Naver 이미지는 CDN 차단 우회를 위해 서버사이드 프록시 (action=naver-image)
 
 Stage 3: 메뉴 추출(fallback) + cuisine 추론 + 거리
-  - menus: 블로그 snippet에서 음식 사전(FOOD_DICT) 매칭 → 빈도순 top3 (LLM 실패 시 fallback)
+  - menus: cuisine 일치 카테고리의 메뉴 사전(MENU_DICT[cuisine])만 매칭 → 빈도순 top3
+           (cuisine null이면 빈 배열. LLM 후처리 입력으로만 사용되며, 카드에는 LLM이 검증한 결과만 노출)
   - cuisine: Google types에 cuisine 태그(korean_restaurant 등) 있으면 우선 매핑,
              없으면 가게명/블로그에서 CUISINE_DICT 단어 빈도로 추론
              (korean / japanese / chinese / western / cafe / bar / null)
@@ -123,7 +124,9 @@ GEMINI_API_KEY          # Gemini 2.5 Flash (메뉴/요약 추출용)
 - Google Places photo URL은 서버에서 redirect follow 후 최종 URL 반환
 - 영문 포함 장소명은 Naver 이미지 검색 시 한글만 추출해서 재시도
 - `vercel dev` 실행 시 Vercel 계정 로그인 필요
-- 메뉴 추출은 인라인 음식 사전(FOOD_DICT) 기반 — 사전에 없는 신메뉴/특이메뉴는 잡히지 않음. 부족하면 api/places.js의 FOOD_DICT에 단어 추가.
+- 메뉴 추출은 cuisine 일치 카테고리의 인라인 메뉴 사전(MENU_DICT) 기반 + LLM 검증. 빵집에 한식 메뉴가 들어가는 등 카테고리 미스매치를 막기 위해 cuisine 추론이 선행되어야 함.
+- 1글자 모호 단어(전·회·진·럼 등)는 substring 매칭에서 한국어 일반 텍스트와 충돌하므로 사전에 의도적으로 제외됨. 합성형(파전·김치전·육회·진토닉)만 유지.
+- LLM이 빈 배열을 반환하면 백엔드 사전 결과로 덮어쓰지 않음 — 틀린 메뉴 표시보다 빈 자리가 더 안전.
 
 ## 작업 루틴
 - **변경 전 반드시 컨펌 받기** (분석/제안 → 사용자 확인 → 작업)

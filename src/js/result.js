@@ -106,10 +106,11 @@ async function enrichWithLLM(restaurants) {
 
   const prompt = `다음 식당 각각에 대해 "대표메뉴 최대 3개"와 "한줄 분위기 요약(15자 이내)"을 추출하세요.
 
-[규칙]
-- 블로그에 명시된 음식/음료/메뉴명만 추출. 사전추출메뉴는 참고용이며, 블로그에 등장한 단어에 한해 채택.
-- 분위기 요약은 블로그 톤에서만 작성. 절대 추측하지 말고 근거가 부족하면 빈 문자열로 두세요.
-- 메뉴 근거가 없으면 menus는 빈 배열로 두세요.
+[중요 원칙]
+- 틀린 정보를 절대 출력하지 마세요. 근거가 부족하거나 애매하면 반드시 빈 값(menus는 [], summary는 "")으로 두세요.
+- 사전추출메뉴는 단순 부분 일치로 만든 후보일 뿐, 노이즈가 많이 섞여있습니다. 블로그 텍스트에 실제로 그 메뉴가 등장하는지 직접 확인 후 채택하세요.
+- 가게의 업종(빵집/카페/한식/양식/술집 등)과 동떨어진 메뉴는 절대 출력하지 마세요. 예: 빵집인데 "전/커리/올리브" 같은 한식·양식 단어가 사전추출에 있어도 빵 메뉴가 아니면 무시.
+- 분위기 요약은 블로그 톤에서만 작성. 추측하거나 일반론을 쓰지 마세요.
 
 [식당 목록]
 ${list}
@@ -137,26 +138,26 @@ JSON 배열로만 응답하세요. 다른 텍스트 없이:
     }
 
     if (Array.isArray(parsed) && parsed.length) {
+      // name이 정확히 매칭된 경우만 LLM 결과 채택. idx fallback은 다른 가게 정보를 들이밀 수 있어 위험.
       return restaurants.map((r, i) => {
         const item = parsed.find(p => p.name === r.name)
           || parsed.find(p => p.name && r.name && r.name.includes(p.name))
-          || parsed.find(p => p.name && r.name && p.name.includes(r.name))
-          || parsed[i];
+          || parsed.find(p => p.name && r.name && p.name.includes(r.name));
         const llmMenus = (item?.menus || []).filter(Boolean).slice(0, 3);
         return {
           ...r,
           display_name: r.name,
           rank: i + 1,
-          menus: llmMenus.length ? llmMenus : (r.menus || []),
+          menus: llmMenus,            // LLM이 빈 배열이면 빈 채로. 백엔드 사전 fallback 안 씀(노이즈 위험).
           summary: (item?.summary || '').slice(0, 30),
         };
       });
     }
   } catch {}
 
-  // LLM 실패 시 백엔드 결과를 그대로 사용 (메뉴는 사전 추출 fallback)
+  // LLM 호출 자체 실패 시: 메뉴 칩·요약 모두 비움 (틀린 정보 표시 방지)
   return restaurants.map((r, i) => ({
-    ...r, display_name: r.name, rank: i + 1, summary: '',
+    ...r, display_name: r.name, rank: i + 1, menus: [], summary: '',
   }));
 }
 
