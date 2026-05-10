@@ -19,6 +19,33 @@
   --shadow: 0 2px 16px rgba(60,40,20,0.08);
   --shadow-lg: 0 6px 28px rgba(60,40,20,0.12);
   --shadow-card: 0 2px 12px rgba(60,40,20,0.07), 0 1px 4px rgba(60,40,20,0.05);
+
+  /* === Brand Book v1 Tokens (Phase 1+ rollout) === */
+  /* Brand Palette */
+  --moim-cream:    #F5F0E8;
+  --moim-rust:     #C8714A;
+  --moim-ink:      #2A2A1A;
+  --moim-paper:    #FFFBF4;
+  --moim-text-sub: #6B6B5C;
+  --moim-border:   #E8E1D6;
+
+  /* Typography */
+  --font-family:   'Pretendard', 'Apple SD Gothic Neo', -apple-system, sans-serif;
+  --fs-h1: 28px;   --fw-h1: 700;
+  --fs-h2: 20px;   --fw-h2: 600;
+  --fs-body: 16px; --fw-body: 400;
+  --fs-btn:  16px; --fw-btn: 600;
+  --fs-cap:  13px; --fw-cap: 400;
+  --lh-body: 1.6;
+  --lh-head: 1.3;
+  --ls-head: -0.5px;
+
+  /* Shape */
+  --r-pill:  9999px;
+  --r-card:  16px;
+  --r-input: 12px;
+  --r-modal: 20px;
+  --shadow-soft: 0 4px 20px rgba(0,0,0,0.08);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
