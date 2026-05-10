@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>C+A 혼합 — 2열 그리드 + 흰 칩</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #f5f0eb;
+    font-family: 'Apple SD Gothic Neo', 'Pretendard', sans-serif;
+    padding: 32px 20px 60px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  h1 { font-size: 12px; color: #999; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 28px; font-weight: 700; }
+  .section { width: 100%; max-width: 380px; margin-bottom: 44px; }
+  .section-label {
+    font-size: 11px; font-weight: 700; color: #aaa; letter-spacing: 1px;
+    text-transform: uppercase; margin-bottom: 10px;
+    padding-bottom: 6px; border-bottom: 1px solid #e8e0da;
+  }
+  .card {
+    background: white; border-radius: 20px;
+    padding: 22px 20px 18px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    margin-bottom: 12px;
+  }
+  .n-label { font-size: 10px; color: #ccc; font-weight: 600; margin-bottom: 8px; }
+  .eyebrow { font-size: 11px; color: #aaa; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 600; margin-bottom: 10px; }
+  .title { font-size: 20px; font-weight: 700; margin-top: 14px; margin-bottom: 3px; }
+  .sub { font-size: 11px; color: #aaa; letter-spacing: 0.5px; font-weight: 600; margin-top: 4px; }
+  .big { font-size: 16px; color: #9B5FC0; font-weight: 800; letter-spacing: -0.3px; margin-top: 6px; display: block; }
+
+  /* ── C+A: 2열 그리드 + 흰 칩 ── */
+  .badge {
+    background: #f3ecfc; border: 1.5px solid rgba(155,95,192,.25);
+    border-radius: 14px; padding: 10px 12px;
+  }
+  .badge-top-label { font-size: 10px; color: #b08ad4; font-weight: 500; margin-bottom: 7px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 8px; }
+  .chip {
+    background: white; border: 1px solid rgba(155,95,192,.2);
+    border-radius: 20px; padding: 4px 0;
+    font-size: 11px; color: #9B5FC0; font-weight: 600;
+    text-align: center;
+  }
+  /* 홀수 마지막 칩은 full width */
+  .chip.full { grid-column: 1 / -1; }
+  .divider { border: none; border-top: 1px dashed #ddd5f0; margin: 4px 0 2px; }
+
+  /* 2곳일 땐 기존 스타일 유지 */
+  .badge-2 {
+    display: inline-flex; flex-direction: column;
+    background: #f3ecfc; border: 1.5px solid rgba(155,95,192,.25);
+    border-radius: 14px; padding: 8px 14px; gap: 2px; margin-bottom: 0;
+  }
+  .badge-2 .sm { font-size: 11px; color: #b08ad4; font-weight: 500; }
+  .badge-2 .lg { font-size: 16px; color: #9B5FC0; font-weight: 800; letter-spacing: -0.3px; }
+</style>
+</head>
+<body>
+<h1>C+A 혼합 — 2열 그리드 + 흰 칩</h1>
+
+<div class="section">
+  <p class="section-label">2곳 (기존 스타일 유지)</p>
+  <div class="card">
+    <p class="eyebrow">추천 완료</p>
+    <div class="badge-2">
+      <span class="sm">📍 서울역 &amp; 신용산역 중간</span>
+      <span class="lg">청파동3가</span>
+    </div>
+    <h2 class="title">🍺 맥주 / 호프 술자리</h2>
+    <p class="sub">[ 2km 이내의 맥주 / 호프 추천 ]</p>
+  </div>
+</div>
+
+<div class="section">
+  <p class="section-label">4곳</p>
+  <div class="card">
+    <p class="eyebrow">추천 완료</p>
+    <div class="badge">
+      <p class="badge-top-label">출발지들의 딱 중간</p>
+      <div class="grid">
+        <div class="chip">서울역</div>
+        <div class="chip">강남역</div>
+        <div class="chip">홍대입구역</div>
+        <div class="chip">신용산역</div>
+      </div>
+      <hr class="divider">
+      <span class="big">📍 청파동3가</span>
+    </div>
+    <h2 class="title">🍺 맥주 / 호프 술자리</h2>
+    <p class="sub">[ 2km 이내의 맥주 / 호프 추천 ]</p>
+  </div>
+</div>
+
+<div class="section">
+  <p class="section-label">6곳</p>
+  <div class="card">
+    <p class="eyebrow">추천 완료</p>
+    <div class="badge">
+      <p class="badge-top-label">출발지들의 딱 중간</p>
+      <div class="grid">
+        <div class="chip">서울역</div>
+        <div class="chip">강남역</div>
+        <div class="chip">홍대입구역</div>
+        <div class="chip">신용산역</div>
+        <div class="chip">왕십리역</div>
+        <div class="chip">건대입구역</div>
+      </div>
+      <hr class="divider">
+      <span class="big">📍 청파동3가</span>
+    </div>
+    <h2 class="title">🍺 맥주 / 호프 술자리</h2>
+    <p class="sub">[ 2km 이내의 맥주 / 호프 추천 ]</p>
+  </div>
+</div>
+
+<div class="section">
+  <p class="section-label">7곳 (홀수 — 마지막 full width)</p>
+  <div class="card">
+    <p class="eyebrow">추천 완료</p>
+    <div class="badge">
+      <p class="badge-top-label">출발지들의 딱 중간</p>
+      <div class="grid">
+        <div class="chip">서울역</div>
+        <div class="chip">강남역</div>
+        <div class="chip">홍대입구역</div>
+        <div class="chip">신용산역</div>
+        <div class="chip">왕십리역</div>
+        <div class="chip">건대입구역</div>
+        <div class="chip full">이수역</div>
+      </div>
+      <hr class="divider">
+      <span class="big">📍 청파동3가</span>
+    </div>
+    <h2 class="title">🍺 맥주 / 호프 술자리</h2>
+    <p class="sub">[ 2km 이내의 맥주 / 호프 추천 ]</p>
+  </div>
+</div>
+
+<div class="section">
+  <p class="section-label">8곳</p>
+  <div class="card">
+    <p class="eyebrow">추천 완료</p>
+    <div class="badge">
+      <p class="badge-top-label">출발지들의 딱 중간</p>
+      <div class="grid">
+        <div class="chip">서울역</div>
+        <div class="chip">강남역</div>
+        <div class="chip">홍대입구역</div>
+        <div class="chip">신용산역</div>
+        <div class="chip">왕십리역</div>
+        <div class="chip">건대입구역</div>
+        <div class="chip">이수역</div>
+        <div class="chip">교대역</div>
+      </div>
+      <hr class="divider">
+      <span class="big">📍 청파동3가</span>
+    </div>
+    <h2 class="title">🍺 맥주 / 호프 술자리</h2>
+    <p class="sub">[ 2km 이내의 맥주 / 호프 추천 ]</p>
+  </div>
+</div>
+
+</body>
+</html>
