@@ -503,10 +503,10 @@ export default async function handler(req, res) {
         const intentBonus = (intent && p.cuisine === intent) ? 0.20 : 0;
         const blockPenalty = (p.cuisine && block.includes(p.cuisine)) ? -0.40 : 0;
         p.score = +(
-          0.30 * ratingN[i] +
-          0.20 * blogN[i] +
-          0.15 * distN[i] +
-          0.10 * (p.photos?.length > 0 ? 1 : 0) +
+          0.35 * ratingN[i] +
+          0.05 * blogN[i] +
+          0.25 * distN[i] +
+          0.05 * (p.photos?.length > 0 ? 1 : 0) +
           0.05 * matchKeyword(p) +
           intentBonus +
           blockPenalty
@@ -518,6 +518,27 @@ export default async function handler(req, res) {
         .slice(0, 10);
 
       return res.status(200).json({ results: finalFiltered, radiusUsed, snappedStation: snap.name, snappedDistKm: Math.round(snap.dist * 10) / 10 });
+    }
+
+    // ── Google 리뷰 반환 (현재 보이는 카드만 요약할 때 사용)
+    if (action === 'reviews') {
+      const ids = (req.query.place_ids || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
+      const results = await Promise.all(ids.map(async placeId => {
+        try {
+          const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}&fields=place_id,name,reviews&language=ko&reviews_sort=most_relevant&key=${GKEY}`;
+          const r = await fetch(detailUrl);
+          const d = await r.json();
+          const reviews = (d.result?.reviews || []).slice(0, 3).map(rv => ({
+            text: (rv.text || '').replace(/\s+/g, ' ').slice(0, 220),
+            rating: rv.rating || null,
+            relative_time_description: rv.relative_time_description || '',
+          })).filter(rv => rv.text);
+          return { place_id: placeId, reviews };
+        } catch {
+          return { place_id: placeId, reviews: [] };
+        }
+      }));
+      return res.status(200).json({ results });
     }
 
     // ── 사진 URL 반환

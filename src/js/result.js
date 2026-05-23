@@ -12,18 +12,25 @@ async function getRecommend() {
     const nd = await nr.json();
     if (!nd.results?.length) throw new Error('주변에 식당을 찾지 못했어요. 출발지를 다시 설정해보세요.');
 
-    const top = nd.results.slice(0, 10);
+    const top = nd.results.slice(0, 10).map((r, i) => ({
+      ...r,
+      display_name: r.name,
+      rank: i + 1,
+      menu_candidates: r.menus || [],
+      menus: [],
+      summary: '',
+      _llmDone: false,
+    }));
 
     step(3);
-    const enriched = await enrichWithLLM(top);
+    const withPhotos = await loadPhotos(top);
 
     step(4);
-    const withPhotos = await loadPhotos(enriched);
-
     const radiusUsed = nd.radiusUsed || 2.0;
     const snappedStation = nd.snappedStation || null;
     S.rec = { restaurants: withPhotos, mid, radiusUsed, snappedStation };
-    renderResult(withPhotos, mid, radiusUsed, snappedStation);
+    await enrichPage(0);
+    renderResult(S.rec.restaurants, mid, radiusUsed, snappedStation);
     go('s-result');
   } catch(e) {
     document.getElementById('loc-error').textContent = e.message || '오류가 발생했어요. 다시 시도해주세요.';
@@ -87,30 +94,78 @@ function buildKw() {
   return { keyword, intent, block };
 }
 
+async function fetchReviewContext(restaurants) {
+  const ids = restaurants.map(r => r.place_id).filter(Boolean);
+  if (!ids.length) return new Map();
+  try {
+    const res = await fetch(`/api/places?action=reviews&place_ids=${encodeURIComponent(ids.join(','))}`);
+    const d = await res.json();
+    return new Map((d.results || []).map(item => [item.place_id, item.reviews || []]));
+  } catch {
+    return new Map();
+  }
+}
+
+async function enrichPage(pageIndex) {
+  if (!S.rec?.restaurants) return;
+  const start = pageIndex * 3;
+  const pageItems = S.rec.restaurants.slice(start, start + 3);
+  const targets = pageItems.filter(r => !r._llmDone);
+  if (!targets.length) return;
+
+  const btnNext = document.getElementById('btn-next-rec');
+  const oldText = btnNext?.textContent;
+  if (btnNext) {
+    btnNext.disabled = true;
+    btnNext.textContent = '요약 중...';
+  }
+
+  try {
+    const enriched = await enrichWithLLM(targets);
+    enriched.forEach(item => {
+      const idx = S.rec.restaurants.findIndex(r => r.place_id && r.place_id === item.place_id);
+      if (idx >= 0) S.rec.restaurants[idx] = { ...S.rec.restaurants[idx], ...item, _llmDone: true };
+    });
+  } finally {
+    if (btnNext) {
+      btnNext.disabled = false;
+      btnNext.textContent = oldText || '다음 Top 3 보기';
+    }
+  }
+}
+
 async function enrichWithLLM(restaurants) {
-  // 백엔드의 결정론적 정렬을 신뢰. LLM은 메뉴 칩(menus)과 한줄요약(summary) 추출만 담당.
+  // 백엔드의 결정론적 정렬을 신뢰. LLM은 현재 페이지의 메뉴 칩과 한줄요약만 담당.
+  const reviewMap = await fetchReviewContext(restaurants);
   const list = restaurants.map((r, i) => {
-    const blogText = (r.blog_snippets || []).join(' | ').slice(0, 400);
-    const fallback = (r.menus || []).join(', ');
+    const reviews = (reviewMap.get(r.place_id) || [])
+      .map(rv => `- ${rv.rating ? `${rv.rating}점 ` : ''}${rv.text}`)
+      .join('\n')
+      .slice(0, 520);
+    const blogText = (r.blog_snippets || []).slice(0, 2).join(' | ').slice(0, 240);
+    const fallback = (r.menu_candidates || r.menus || []).join(', ');
     return `${i+1}. ${r.name}
    주소: ${r.formatted_address || ''}
-   블로그: ${blogText || '(없음)'}
-   사전추출메뉴: ${fallback || '(없음)'}`;
+   Google리뷰:
+${reviews || '(없음)'}
+   보조블로그: ${blogText || '(없음)'}
+   메뉴후보: ${fallback || '(없음)'}`;
   }).join('\n\n');
 
-  const prompt = `다음 식당 각각에 대해 "대표메뉴 최대 3개"와 "한줄 분위기 요약(15자 이내)"을 추출하세요.
+  const prompt = `다음 식당 각각에 대해 "대표메뉴 최대 3개"와 "한줄 요약(18자 이내)"을 추출하세요.
 
 [중요 원칙]
 - 틀린 정보를 절대 출력하지 마세요. 근거가 부족하거나 애매하면 반드시 빈 값(menus는 [], summary는 "")으로 두세요.
-- 사전추출메뉴는 단순 부분 일치로 만든 후보일 뿐, 노이즈가 많이 섞여있습니다. 블로그 텍스트에 실제로 그 메뉴가 등장하는지 직접 확인 후 채택하세요.
+- Google리뷰를 가장 우선 근거로 사용하고, 보조블로그는 메뉴 확인용 보조 근거로만 사용하세요.
+- 메뉴후보는 단순 부분 일치로 만든 후보일 뿐, 노이즈가 섞여있습니다. 리뷰나 보조블로그에 실제로 등장하는 메뉴만 채택하세요.
 - 가게의 업종(빵집/카페/한식/양식/술집 등)과 동떨어진 메뉴는 절대 출력하지 마세요. 예: 빵집인데 "전/커리/올리브" 같은 한식·양식 단어가 사전추출에 있어도 빵 메뉴가 아니면 무시.
-- 분위기 요약은 블로그 톤에서만 작성. 추측하거나 일반론을 쓰지 마세요.
+- 한줄 요약은 리뷰에 반복되거나 명확히 드러난 장점만 쓰세요. 추측하거나 일반론을 쓰지 마세요.
 
 [식당 목록]
 ${list}
 
 JSON 배열로만 응답하세요. 다른 텍스트 없이:
-[{"name":"식당명","menus":["메뉴1","메뉴2","메뉴3"],"summary":"15자이내요약"}]`;
+[{"name":"식당명","menus":["메뉴1","메뉴2","메뉴3"],"summary":"18자이내요약"}]`;
 
   try {
     const res = await fetch('/api/places?action=gemini', {
@@ -141,9 +196,10 @@ JSON 배열로만 응답하세요. 다른 텍스트 없이:
         return {
           ...r,
           display_name: r.name,
-          rank: i + 1,
+          rank: r.rank || i + 1,
           menus: llmMenus,            // LLM이 빈 배열이면 빈 채로. 백엔드 사전 fallback 안 씀(노이즈 위험).
           summary: (item?.summary || '').slice(0, 30),
+          _llmDone: true,
         };
       });
     }
@@ -151,7 +207,7 @@ JSON 배열로만 응답하세요. 다른 텍스트 없이:
 
   // LLM 호출 자체 실패 시: 메뉴 칩·요약 모두 비움 (틀린 정보 표시 방지)
   return restaurants.map((r, i) => ({
-    ...r, display_name: r.name, rank: i + 1, menus: [], summary: '',
+    ...r, display_name: r.name, rank: r.rank || i + 1, menus: [], summary: '', _llmDone: true,
   }));
 }
 
@@ -273,10 +329,9 @@ function renderResult(rests, mid, radiusUsed, snappedStation) {
       ? (r.dist_m >= 1000 ? `${(r.dist_m/1000).toFixed(1)}km` : `${r.dist_m}m`)
       : '';
     const meta = [
-      r.rating ? `<span class="rest-rating">★ ${r.rating}</span><span class="rest-reviews">(${(r.user_ratings_total||0).toLocaleString()})</span>` : '',
+      r.rating ? `<span class="rest-rating">★ ${r.rating}</span><span class="rest-reviews">리뷰 ${(r.user_ratings_total||0).toLocaleString()}</span>` : '',
       r.price_level ? `<span class="rest-price">${'₩'.repeat(r.price_level)}</span>` : '',
       distStr ? `<span class="rest-dist">🚶 ${distStr}</span>` : '',
-      r.blog_count ? `<span class="rest-blog">📝 ${r.blog_count.toLocaleString()}</span>` : '',
     ].filter(Boolean).join('');
 
     const menus = r.menus || [];
@@ -308,16 +363,18 @@ function renderResult(rests, mid, radiusUsed, snappedStation) {
   }
 }
 
-function nextRecommend() {
+async function nextRecommend() {
   const rests = S.rec?.restaurants || [];
   const totalPages = Math.ceil(rests.length / 3);
   S.recPage = (S.recPage + 1) % totalPages;
+  await enrichPage(S.recPage);
   renderResult(rests, S.rec.mid, S.rec.radiusUsed, S.rec.snappedStation);
   window.scrollTo(0, 0);
 }
 
 async function shareResultUrl() {
   const rests = S.rec?.restaurants || [];
+  await enrichPage(S.recPage || 0);
   const startIdx = S.recPage * 3;
   const pageRests = rests.slice(startIdx, startIdx + 3);
 
@@ -414,6 +471,7 @@ function changeCondition() {
 }
 
 async function shareText() {
+  await enrichPage(S.recPage || 0);
   const condStr = S.condition.main || (S.condition.selected || []).join('·') || '';
   const pinNames = S.pins.map(p => {
     const m = (p.label || '').match(/([가-힣]+(?:역|동|읍|면|리))/);
