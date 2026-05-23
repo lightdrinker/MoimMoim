@@ -333,12 +333,15 @@ export default async function handler(req, res) {
         return d.results || [];
       };
 
-      let rawPlaces = [];
+      const rawById = new Map();
       for (const radiusM of [2000, 3000]) {
-        rawPlaces = await doTextSearch(radiusM);
-        radiusUsed = radiusM / 1000;
-        if (rawPlaces.length >= 3) break;
+        const results = await doTextSearch(radiusM);
+        results.forEach(p => {
+          const key = p.place_id || `${p.name}|${p.formatted_address}`;
+          if (key && !rawById.has(key)) rawById.set(key, p);
+        });
       }
+      let rawPlaces = [...rawById.values()];
 
       if (!rawPlaces.length) return res.status(200).json({ results: [] });
 
@@ -443,7 +446,11 @@ export default async function handler(req, res) {
         }));
       }
 
-      // Google types 필터: 음식점/카페가 아닌 업종 제거
+      // Google types 필터: 음식점/카페/술집 계열만 통과시키고 명백한 비식당 업종 제거
+      const GOOGLE_FOOD_TYPES = [
+        'restaurant', 'food', 'cafe', 'bakery', 'bar', 'meal_takeaway', 'meal_delivery',
+        ...Object.keys(TYPE_TO_CUISINE),
+      ];
       const GOOGLE_BLOCKED_TYPES = [
         'grocery_or_supermarket', 'supermarket', 'convenience_store',
         'department_store', 'shopping_mall', 'store', 'clothing_store',
@@ -452,14 +459,8 @@ export default async function handler(req, res) {
         'hospital', 'pharmacy', 'doctor', 'school', 'university',
         'lodging', 'hotel',
       ];
-      const isGoogleFoodPlace = (r) => {
-        if (!r.types || !r.types.length) return true;
-        return !r.types.some(t => GOOGLE_BLOCKED_TYPES.includes(t));
-      };
-      const enrichedFiltered = enriched.filter(isGoogleFoodPlace);
-
       // ── 4단계: cuisine 추론 → 카테고리 일치 메뉴만 추출 + 거리 + 결정론적 스코어링
-      enrichedFiltered.forEach(p => {
+      enriched.forEach(p => {
         const blogText = (p.blog_snippets || []).join(' ');
         const menuText = (p.menu_snippets || []).join(' ');
         p.cuisine = detectCuisine(p.name, p.types, `${blogText} ${menuText}`);
@@ -468,6 +469,20 @@ export default async function handler(req, res) {
           ? Math.round(distKm(midLat, midLng, p._lat, p._lng) * 1000)
           : null;
       });
+
+      const isGoogleFoodPlace = (r) => {
+        const types = r.types || [];
+        if (types.some(t => GOOGLE_BLOCKED_TYPES.includes(t))) return false;
+        return types.some(t => GOOGLE_FOOD_TYPES.includes(t)) || !!r.cuisine;
+      };
+
+      const nearFoodPlaces = enriched.filter(isGoogleFoodPlace);
+      const within2km = nearFoodPlaces.filter(p => p.dist_m != null && p.dist_m <= 2000);
+      const maxDistM = within2km.length >= 3 ? 2000 : 3000;
+      radiusUsed = maxDistM / 1000;
+      const enrichedFiltered = nearFoodPlaces.filter(p => p.dist_m != null && p.dist_m <= maxDistM);
+
+      if (!enrichedFiltered.length) return res.status(200).json({ results: [], radiusUsed, snappedStation: snap.name, snappedDistKm: Math.round(snap.dist * 10) / 10 });
 
       const ratingRaw = enrichedFiltered.map(p => (p.rating || 0) * Math.log((p.user_ratings_total || 0) + 1));
       const blogRaw = enrichedFiltered.map(p => p.blog_count || 0);

@@ -20,16 +20,10 @@ async function getRecommend() {
     step(4);
     const withPhotos = await loadPhotos(enriched);
 
-    // 사진 있는 곳 우선 정렬 (Top 3 안에 사진 없는 곳 배치 방지)
-    const photosFirst = [
-      ...withPhotos.filter(r => r.photo_urls?.length > 0),
-      ...withPhotos.filter(r => !r.photo_urls?.length),
-    ];
-
     const radiusUsed = nd.radiusUsed || 2.0;
     const snappedStation = nd.snappedStation || null;
-    S.rec = { restaurants: photosFirst, mid, radiusUsed, snappedStation };
-    renderResult(photosFirst, mid, radiusUsed, snappedStation);
+    S.rec = { restaurants: withPhotos, mid, radiusUsed, snappedStation };
+    renderResult(withPhotos, mid, radiusUsed, snappedStation);
     go('s-result');
   } catch(e) {
     document.getElementById('loc-error').textContent = e.message || '오류가 발생했어요. 다시 시도해주세요.';
